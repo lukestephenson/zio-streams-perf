@@ -15,22 +15,22 @@ object PushStreamSpec extends ZIOSpecDefault {
           (PushStream.range(1, 2)).runCollect
         )(equalTo(Chunk(1)))
       },
-//      test("two large ranges can be concatenated") {
-//        assertZIO(
-//          (PushStream.range(1, 1000) ++ PushStream.range(1000, 2000)).runCollect
-//        )(equalTo(Chunk.fromIterable(Range(1, 2000))))
-//      },
-//      test("two small ranges can be concatenated") {
-//        assertZIO(
-//          (PushStream.range(1, 10) ++ PushStream.range(10, 20)).runCollect
-//        )(equalTo(Chunk.fromIterable(Range(1, 20))))
-//      },
-//      test("range emits no values when start >= end") {
-//        assertZIO(
-//          (PushStream.range(1, 1) ++ PushStream.range(2, 1)).runCollect
-//        )(equalTo(Chunk.empty))
-//      }
-      // Chunking is not a concern.
+      test("two large ranges can be concatenated") {
+        assertZIO(
+          (PushStream.range(1, 1000) ++ PushStream.range(1000, 2000)).runCollect
+        )(equalTo(Chunk.fromIterable(Range(1, 2000))))
+      },
+      test("two small ranges can be concatenated") {
+        assertZIO(
+          (PushStream.range(1, 10) ++ PushStream.range(10, 20)).runCollect
+        )(equalTo(Chunk.fromIterable(Range(1, 20))))
+      },
+      test("range emits no values when start >= end") {
+        assertZIO(
+          (PushStream.range(1, 1) ++ PushStream.range(2, 1)).runCollect
+        )(equalTo(Chunk.empty))
+      }
+//      // Chunking is not a concern.
 //      test("range emits values in chunks of chunkSize") {
 //        assertZIO(
 //          (PushStream

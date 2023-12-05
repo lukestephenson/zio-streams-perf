@@ -14,7 +14,7 @@ import java.util.concurrent.{Semaphore => JSemaphore}
 trait Observer[R, +E, -T] {
   def onNext(elem: T): ZIO[R, E, Ack]
 
-  def onComplete(): UIO[Unit]
+  def onComplete(): ZIO[R, E, Unit]
 }
 
 sealed abstract class Ack {
@@ -46,22 +46,25 @@ trait PushStream[-R, +E, +A] { self =>
 
   def runCollect: ZIO[R, E, Chunk[A]] = runFold(Chunk.empty[A])((chunk, t) => chunk.appended(t))
 
-//  def ++[R1 <: R, E1 >: E, A1 >: A](that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] =
-//    self concat that
-//
-//  def concat[R1 <: R, E1 >: E, A1 >: A](that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] = {
-//    println(s"concat with $that")
-//    new PushStream[R, E, A1] {
-//      override def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A1]): ZIO[OutR2, OutE2, Unit] = {
-//        println(s"subscribe from $observer")
-//        self.subscribe(new Observer[OutR2, OutE2, A1] {
-//          override def onNext(elem: A1): ZIO[OutR2, OutE2, Ack] = observer.onNext(elem)
-//
-//          override def onComplete(): ZIO[OutR2, OutE2, Unit] = that.subscribe(observer)
-//        })
-//      }
-//    }
-//  }
+  def ++[R1 <: R, E1 >: E, A1 >: A](that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] =
+    self concat that
+
+  def concat[R1 <: R, E1 >: E, A1 >: A](that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] = {
+    println(s"concat with $that")
+    new PushStream[R1, E1, A1] {
+      override def subscribe[OutR2 <: R1, OutE2 >: E1](observer: Observer[OutR2, OutE2, A1]): ZIO[OutR2, OutE2, Unit] = {
+        println(s"subscribe from $observer")
+        self.subscribe(new Observer[OutR2, OutE2, A1] {
+          override def onNext(elem: A1): ZIO[OutR2, OutE2, Ack] = observer.onNext(elem)
+
+          override def onComplete(): ZIO[OutR2, OutE2, Unit] = {
+            val x: ZIO[OutR2, OutE2, Unit] = that.subscribe(observer)
+            x
+          }
+        })
+      }
+    }
+  }
 
   def runFold[B](z: B)(f: (B, A) => B): ZIO[R,E,B] = {
     Promise.make[Nothing, B].flatMap { completion =>
@@ -119,7 +122,7 @@ class MapOperator[R, E, A, B](f: A => B) extends Operator[A,R,E,B]{
           out.onNext(f(elem))
         }
 
-        override def onComplete(): UIO[Unit] = out.onComplete()
+        override def onComplete(): ZIO[OutR1, OutE1, Unit] = out.onComplete()
       })
 
 
@@ -241,7 +244,7 @@ class MapZioOperator[InA, OutR, OutE, OutB](f: InA => ZIO[OutR,OutE,OutB]) exten
       result
     }
 
-    override def onComplete(): UIO[Unit] = out.onComplete()
+    override def onComplete(): ZIO[OutR1, OutE1, Unit] = out.onComplete()
 
   })
 }
@@ -396,7 +399,7 @@ object Example extends ZIOAppDefault {
 
     program //.repeatN(5)
 
-//    (PushStream.range(1,4) ++ PushStream.range(5, 10)).mapZio(i => zio.Console.printLine(s"got $i").orDie).runCollect
+    (PushStream.range(1,4) ++ PushStream.range(5, 10)).mapZIO(i => zio.Console.printLine(s"got $i").orDie).runCollect
 //
 //    SamplingProfiler().profile(program).flatMap(_.stackCollapseToFile("profile.folded"))
   }
