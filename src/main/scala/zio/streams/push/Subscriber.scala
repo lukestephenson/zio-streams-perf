@@ -35,14 +35,9 @@ object Ack {
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): ZIO[OutR2, OutE2, Unit]
 
-  //  def map[B](f: A => B): PushStream[R, E, B] = new LiftByOperatorPushStream(this, new MapOperator(f))
+  def map[B](f: A => B): PushStream[R, E, B] = new LiftByOperatorPushStream(this, new MapOperator[R,E,A, B](f))
 
-  def mapZIO[R1 <: R, E1 >: E, A1](f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] =  {
-    val mapZioOperator: MapZioOperator[A, R1, E1, A1] = new MapZioOperator(f)
-    val x: LiftByOperatorPushStream[R, E, A, R1, E1, A1] = new LiftByOperatorPushStream(self, mapZioOperator)
-    val y: PushStream[R1, E1, A1] = x
-    y
-  }
+  def mapZIO[R1 <: R, E1 >: E, A1](f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] = new LiftByOperatorPushStream(self, new MapZioOperator[A, R1, E1, A1](f))
 
 //  def mapZioPar[B](parallelism: Int)(f: A => UIO[B]): PushStream[R, E, B] = new LiftByOperatorPushStream(this, new MapParallelZioOperator(parallelism, f))
 ////  def mapZioParFast[B](parallelism: Int)(f: A => UIO[B]): PushStream[R, E, B] = new LiftByOperatorPushStream(this, new MapParallelZioOperatorFast(parallelism, f))
@@ -57,12 +52,12 @@ trait PushStream[-R, +E, +A] { self =>
 //  def concat[R1 <: R, E1 >: E, A1 >: A](that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] = {
 //    println(s"concat with $that")
 //    new PushStream[R, E, A1] {
-//      override def subscribe(observer: Observer[A1]): UIO[Unit] = {
+//      override def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A1]): ZIO[OutR2, OutE2, Unit] = {
 //        println(s"subscribe from $observer")
-//        self.subscribe(new Observer[A1] {
-//          override def onNext(elem: A1): UIO[Ack] = observer.onNext(elem)
+//        self.subscribe(new Observer[OutR2, OutE2, A1] {
+//          override def onNext(elem: A1): ZIO[OutR2, OutE2, Ack] = observer.onNext(elem)
 //
-//          override def onComplete(): UIO[Unit] = that.subscribe(observer)
+//          override def onComplete(): ZIO[OutR2, OutE2, Unit] = that.subscribe(observer)
 //        })
 //      }
 //    }
@@ -96,7 +91,7 @@ trait PushStream[-R, +E, +A] { self =>
   }
 }
 
-class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](upstream: PushStream[InR, InE, InA], operator: MapZioOperator[InA, OutR, OutE, OutB]) extends PushStream[OutR, OutE, OutB] {
+class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](upstream: PushStream[InR, InE, InA], operator: Operator[InA, OutR, OutE, OutB]) extends PushStream[OutR, OutE, OutB] {
 //  override def subscribe(observer: Observer[OutR, OutE, OutB]): UIO[Unit]= {
 //    operator(observer).flatMap { subscriberB =>
 //      upstream.subscribe(subscriberB)
@@ -117,15 +112,18 @@ class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](up
   }
 }
 
-//class MapOperator[-A, +B](f: A => B) extends Operator[A,B]{
-//  def apply(out: Observer[B]): UIO[Observer[A]] = ZIO.succeed(new Observer[A] {
-//    override def onNext(elem: A): UIO[Ack] = {
-//      out.onNext(f(elem))
-//    }
-//
-//    override def onComplete(): UIO[Unit] = out.onComplete()
-//  })
-//}
+//class MapOperator[R, E, -A, +B](f: A => B) extends Operator[A, R,E,B]{
+class MapOperator[R, E, A, B](f: A => B) extends Operator[A,R,E,B]{
+  override def apply[OutR1 <: R, OutE1 >: E](out: Observer[OutR1, OutE1, B]): UIO[Observer[OutR1, OutE1, A]] = ZIO.succeed(new Observer[OutR1,OutE1,A] {
+        override def onNext(elem: A): ZIO[OutR1, OutE1,Ack] = {
+          out.onNext(f(elem))
+        }
+
+        override def onComplete(): UIO[Unit] = out.onComplete()
+      })
+
+
+}
 //
 //class MapParallelZioOperator[-A, +B](parallelism: Int, f: A => UIO[B]) extends Operator[A,B] {
 //  def apply(out: Observer[B]): UIO[Observer[A]] = {
@@ -233,7 +231,7 @@ class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](up
 //  }
 //}
 
-class MapZioOperator[InA, OutR, OutE, OutB](f: InA => ZIO[OutR,OutE,OutB]){
+class MapZioOperator[InA, OutR, OutE, OutB](f: InA => ZIO[OutR,OutE,OutB]) extends Operator[InA, OutR,OutE,OutB] {
   def apply[OutR1 <: OutR, OutE1 >: OutE](out: Observer[OutR1,OutE1,OutB]): UIO[Observer[OutR1,OutE1,InA]] = ZIO.succeed(new Observer[OutR1,OutE1,InA] {
 
     override def onNext(elem: InA): ZIO[OutR1,OutE1, Ack] = {
@@ -278,7 +276,9 @@ class MapZioOperator[InA, OutR, OutE, OutB](f: InA => ZIO[OutR,OutE,OutB]){
 object PushStream {
 //  type PureOperator[-I, +O] = Observer[O] => UIO[Observer[I]]
 
-  type Operator[InR, InE, -InA, OutR, OutE, +OutB] = Observer[OutR, OutE, OutB] => UIO[Observer[InR, InE, InA]]
+  trait Operator[InA, OutR, OutE, +OutB] {
+    def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, OutB]): UIO[Observer[OutR1, OutE1, InA]]
+  }
 
   def apply[T](elems: T*): PushStream[Any, Nothing, T] = {
     fromIterable(elems)
@@ -369,15 +369,24 @@ object Example extends ZIOAppDefault {
       val mapped: PushStream[Any, String, Int] = range.mapZIO(i => if (i == 5) ZIO.fail("dead") else ZIO.succeed(i * 2))
         val folded: ZIO[Any, String, Long] = mapped.runFold(0L)(_ + _)
 
+    val streamMax = 5_000_000
+    val pushStream = PushStream.range(0, streamMax)
+    val zStream = ZStream.range(0, streamMax, 1)
+
     val program = for {
       _ <- ZIO.unit
-      range = PushStream.range(0, 500_000).runFold(0L)(_ + _)
-      _ <- timed("range and fold", range)
-      mapResult = PushStream.range(0, 500_000).mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      _ <- timed("mapResult", mapResult)
-      mapResultZio = ZStream.range(0, 500_000, 1).mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      _ <- timed("mapResultZIO", mapResultZio)
-      _ <- timed("range and fold take 2", range)
+      rangePS = pushStream.runFold(0L)(_ + _)
+      rangeZS = zStream.runFold(0L)(_ + _)
+      _ <- timed("ZS - range and fold", rangeZS)
+      _ <- timed("PS - range and fold", rangePS)
+      mapZS = zStream.map(i => i * 2).runFold(0L)(_ + _)
+      mapPS = pushStream.map(i => i * 2).runFold(0L)(_ + _)
+      _ <- timed("ZS - map", mapZS)
+      _ <- timed("PS - map", mapPS)
+      mapZioZS = zStream.mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
+      mapZioPS = pushStream.mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
+      _ <- timed("ZS - mapZio", mapZioZS)
+      _ <- timed("PS - mapZio", mapZioPS)
 //      mapParResult = PushStream.range(0, 500_000).mapZioPar(8)(i => ZIO.succeed(i*2)).runFold(0L)(_ + _)
 //      _ <- timed("mapParResult", mapParResult)
 //      result <- fiberProg.timed
