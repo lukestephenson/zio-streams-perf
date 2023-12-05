@@ -1,16 +1,9 @@
 package zio.streams.push
 
-import zio.profiling.sampling._
 import zio.stm.TSemaphore
-import zio.stream.ZStream
 import zio.streams.push.Ack.{Continue, Stop}
 import zio.streams.push.PushStream.Operator
-import zio.{Chunk, Exit, Fiber, Promise, Queue, Ref, Scope, Semaphore, Task, Trace, UIO, Unsafe, ZIO, ZIOAppArgs, ZIOAppDefault, durationInt}
-
-import java.util.concurrent.ConcurrentLinkedQueue
-import scala.annotation.tailrec
-import java.util.concurrent.{Semaphore => JSemaphore}
-import scala.Console.out
+import zio.{Chunk, Fiber, Promise, Queue, UIO, Unsafe, ZIO, Ref}
 
 trait Observer[R, +E, -T] {
   def onNext(elem: T): ZIO[R, E, Ack]
@@ -40,10 +33,9 @@ trait PushStream[-R, +E, +A] { self =>
 
   def mapZIO[R1 <: R, E1 >: E, A1](f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] = new LiftByOperatorPushStream(self, new MapZioOperator[A, R1, E1, A1](f))
 
-  def mapZioPar[R1 <: R, E1 >: E, A1](parallelism: Int)(f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1]  = new LiftByOperatorPushStream(this, new MapParallelZioOperator[A, R1, E1, A1](parallelism, f))
-////  def mapZioParFast[B](parallelism: Int)(f: A => UIO[B]): PushStream[R, E, B] = new LiftByOperatorPushStream(this, new MapParallelZioOperatorFast(parallelism, f))
-//
-//  def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[A](elements))
+  def mapZIOPar[R1 <: R, E1 >: E, A1](parallelism: Int)(f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1]  = new LiftByOperatorPushStream(this, new MapParallelZioOperator[A, R1, E1, A1](parallelism, f))
+
+    def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
 
   def runCollect: ZIO[R, E, Chunk[A]] = runFold(Chunk.empty[A])((chunk, t) => chunk.appended(t))
 
@@ -72,12 +64,12 @@ trait PushStream[-R, +E, +A] { self =>
       var zState = z
       val stream: ZIO[R, E, Unit] = this.subscribe(new Observer[R, E, A] {
         override def onNext(elem: A): ZIO[R,E, Ack] = {
-//          ZIO.succeed {
-//            zState = f(zState, elem)
-//          }.as(Continue)
+          ZIO.succeed {
+            zState = f(zState, elem)
+          }.as(Continue)
 
-          zState = f(zState, elem)
-          Acks.Continue
+//          zState = f(zState, elem)
+//          Acks.Continue
         }
 
         override def onComplete(): UIO[Unit] = {
@@ -96,15 +88,6 @@ trait PushStream[-R, +E, +A] { self =>
 }
 
 class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](upstream: PushStream[InR, InE, InA], operator: Operator[InA, OutR, OutE, OutB]) extends PushStream[OutR, OutE, OutB] {
-//  override def subscribe(observer: Observer[OutR, OutE, OutB]): UIO[Unit]= {
-//    operator(observer).flatMap { subscriberB =>
-//      upstream.subscribe(subscriberB)
-//    }
-//  }
-
-//  override def subscribe(observer: Observer[OutR, OutE, OutB]): ZIO[OutR, OutE, Unit] = ???
-
-//  override def subscribe[OutR2 <: OutR, OutE2 >: OutE](observer: Observer[OutR2, OutE2, OutB]): ZIO[OutR2, OutE2, Unit] = {
   override def subscribe[OutR2 <: OutR, OutE2 >: OutE](observer: Observer[OutR2, OutE2, OutB]): ZIO[OutR2, OutE2, Unit] = {
     val transformedObserver: ZIO[OutR2, OutE2, Observer[OutR2, OutE2, InA]] = operator(observer)
 
@@ -116,7 +99,6 @@ class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](up
   }
 }
 
-//class MapOperator[R, E, -A, +B](f: A => B) extends Operator[A, R,E,B]{
 class MapOperator[R, E, A, B](f: A => B) extends Operator[A,R,E,B]{
   override def apply[OutR1 <: R, OutE1 >: E](out: Observer[OutR1, OutE1, B]): UIO[Observer[OutR1, OutE1, A]] = ZIO.succeed(new Observer[OutR1,OutE1,A] {
         override def onNext(elem: A): ZIO[OutR1, OutE1,Ack] = {
@@ -294,19 +276,31 @@ class MapZioOperator[InA, OutR, OutE, OutB](f: InA => ZIO[OutR,OutE,OutB]) exten
   })
 }
 //
-//class TakeOperator[T](n: Long) extends Operator[T,T] {
-//  override def apply(out: Observer[T]): UIO[Observer[T]] = Ref.make(0).map { ref =>
-//    new Observer[T] {
-//      override def onNext(elem: T): Task[Ack] = {
+class TakeOperator[R,E,A](n: Long) extends Operator[A,R,E,A] {
+//  override def apply(out: Observer[R,E,A]): UIO[Observer[R,E,A]] = Ref.make(0).map { ref =>
+//    new Observer[R,E,A] {
+//      override def onNext(elem: A): ZIO[R,E,Ack] = {
 //        ref.updateAndGet(i => i + 1).flatMap { emitted =>
 //          if (emitted > n) out.onComplete().as(Stop) else out.onNext(elem)
 //        }
 //      }
 //
-//      override def onComplete(): UIO[Unit] = out.onComplete()
+//      override def onComplete(): ZIO[R, E, Unit] = out.onComplete()
 //    }
 //  }
-//}
+
+  override def apply[OutR1 <: R, OutE1 >: E](out: Observer[OutR1, OutE1, A]): ZIO[OutR1, OutE1, Observer[OutR1, OutE1, A]] = Ref.make(0).map { ref =>
+    new Observer[OutR1,OutE1,A] {
+      override def onNext(elem: A): ZIO[OutR1, OutE1, Ack] = {
+        ref.updateAndGet(i => i + 1).flatMap { emitted =>
+          if (emitted > n) out.onComplete().as(Stop) else out.onNext(elem)
+        }
+      }
+
+      override def onComplete(): ZIO[OutR1, OutE1, Unit] = out.onComplete()
+    }
+  }
+}
 //
 //class TakeOperator2[T](n: Long) extends Operator[T,T] {
 //  override def apply(out: Observer[T]): UIO[Observer[T]] = ZIO.succeed(new Observer[T] {
@@ -322,7 +316,6 @@ class MapZioOperator[InA, OutR, OutE, OutB](f: InA => ZIO[OutR,OutE,OutB]) exten
 //}
 
 object PushStream {
-//  type PureOperator[-I, +O] = Observer[O] => UIO[Observer[I]]
 
   trait Operator[InA, OutR, OutE, +OutB] {
     def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, OutB]): ZIO[OutR1, OutE1, Observer[OutR1, OutE1, InA]]
@@ -380,95 +373,6 @@ object PushStream {
       }
 
 
-    }
-  }
-}
-
-object Example extends ZIOAppDefault {
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = {
-    val semaphoreProg = TSemaphore.makeCommit(8).flatMap { permits =>
-      ZIO.foreachDiscard(0 to 500_000) { i =>
-        for {
-          _ <- permits.acquire.commit
-          _ <- permits.release.commit
-        } yield ()
-      }
-    }
-
-    val enqueueProg = Queue.bounded[Int](8 * 2).flatMap { buffer =>
-      val enqueue = ZIO.foreachDiscard(0 to 500_000) { i =>
-        buffer.offer(i)
-      }
-
-      val dequeue = ZIO.foreachDiscard(0 to 500_000){ _ =>
-        buffer.take
-      }
-
-      enqueue &> dequeue
-    }
-
-    val fiberProg = for {
-      sumFibers <- ZIO.foreach((0 to 500_000).toList) { i => ZIO.succeed(i * 2).fork }
-      sums <- ZIO.foreach(sumFibers)(fiber => fiber.join)
-    } yield sums.sum
-    // .mapZio(a => ZIO.succeed(a *2).delay(1.millis)).take(5)
-
-    val range: PushStream[Any, Nothing, Int] = PushStream.range(0, 500_000)
-      val mapped: PushStream[Any, String, Int] = range.mapZIO(i => if (i == 5) ZIO.fail("dead") else ZIO.succeed(i * 2))
-        val folded: ZIO[Any, String, Long] = mapped.runFold(0L)(_ + _)
-
-    val streamMax = 5_000_000
-    val pushStream = PushStream.range(0, streamMax)
-    val zStream = ZStream.range(0, streamMax, 100)
-
-    val smallStreamSize = 300_000
-    val smallZStream = ZStream.range(0, smallStreamSize, 100)
-    val smallPushStream = PushStream.range(0, smallStreamSize)
-
-    val program = for {
-      _ <- ZIO.unit
-      rangePS = pushStream.runFold(0L)(_ + _)
-      rangeZS = zStream.runFold(0L)(_ + _)
-      _ <- timed("ZS - range and fold", rangeZS)
-      _ <- timed("PS - range and fold", rangePS)
-      mapZS = zStream.map(i => i * 2).runFold(0L)(_ + _)
-      mapPS = pushStream.map(i => i * 2).runFold(0L)(_ + _)
-      _ <- timed("ZS - map", mapZS)
-      _ <- timed("PS - map", mapPS)
-      mapZioZS = zStream.mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      mapZioPS = pushStream.mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      _ <- timed("ZS - mapZio", mapZioZS)
-      _ <- timed("PS - mapZio", mapZioPS)
-      mapZioParZS = smallZStream.mapZIOPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      mapZioParPS = smallPushStream.mapZioPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      _ <- timed("ZS - mapZioPar", mapZioParZS)
-      _ <- timed("PS - mapZioPar", mapZioParPS)
-//      mapParResult = PushStream.range(0, 500_000).mapZioPar(8)(i => ZIO.succeed(i*2)).runFold(0L)(_ + _)
-//      _ <- timed("mapParResult", mapParResult)
-//      result <- fiberProg.timed
-//     result2 <- PushStream.range(0, 100000).mapZioParFast(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _).timed
-//     _ <- ZIO.succeed(println(s"${result2._2} took ${result2._1.toMillis}"))
-    } yield ()
-
-    program //.repeatN(5)
-
-//    (PushStream.range(1,4) ++ PushStream.range(5, 10)).mapZIO(i => zio.Console.printLine(s"got $i").orDie).runCollect
-//
-//    SamplingProfiler().profile(program).flatMap(_.stackCollapseToFile("profile.folded"))
-  }
-
-  private def timed[R,E,A](description: String, task: ZIO[R, E, A]): ZIO[R, E, Unit] = {
-    val iterations = 5
-    val timedTask = for {
-      result <- task.timed
-      //      _ <- ZIO.sleep(1.second)
-    } yield result
-
-    val results = ZIO.foreach((1 to iterations).toList)(_ => timedTask)
-    results.flatMap { results =>
-      val time = results.map(_._1.toMillis).sum / iterations
-      val result = results.head._2
-      ZIO.succeed(println(s"$description took ${time}ms on average over $iterations iterations to calculate $result"))
     }
   }
 }
