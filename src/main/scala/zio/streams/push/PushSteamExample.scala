@@ -11,7 +11,7 @@ object PushSteamExample extends ZIOAppDefault {
     val mapped: PushStream[Any, String, Int] = range.mapZIO(i => if (i == 5) ZIO.fail("dead") else ZIO.succeed(i * 2))
     val folded: ZIO[Any, String, Long] = mapped.runFold(0L)(_ + _)
 
-    val chunkSize = 1
+    val chunkSize = 100
 
     val streamMax = 5_000_000
     val pushStream = PushStream.range(0, streamMax)
@@ -21,7 +21,8 @@ object PushSteamExample extends ZIOAppDefault {
     val smallZStream = ZStream.range(0, smallStreamSize, chunkSize)
     val smallPushStream = PushStream.range(0, smallStreamSize)
 
-    val chunkedPushStream: PushStream[Any, Nothing, Chunk[Int]] = PushStream.fromIterable((0 until streamMax / chunkSize).map(i => Chunk.range(i*chunkSize, i*chunkSize + chunkSize)))
+    val chunkedPushStream: PushStream[Any, Nothing, Chunk[Int]] =
+      PushStream.fromIterable((0 until streamMax / chunkSize).map(i => Chunk.range(i * chunkSize, i * chunkSize + chunkSize)))
     val program = for {
       _ <- ZIO.unit
       rangeZS = zStream.runFold(0L)(_ + _)
@@ -53,7 +54,7 @@ object PushSteamExample extends ZIOAppDefault {
     program
   }
 
-  private def timed[R,E,A](description: String, task: ZIO[R, E, A]): ZIO[R, E, Unit] = {
+  private def timed[R, E, A](description: String, task: ZIO[R, E, A]): ZIO[R, E, Unit] = {
     val iterations = 5
     val timedTask = for {
       result <- task.timed

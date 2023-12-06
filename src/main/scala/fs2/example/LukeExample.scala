@@ -11,7 +11,7 @@ object LukeExample extends ZIOAppDefault {
     val source: LukeStream[Any, Nothing, Int] = LukeStream.range(0, max)
 
     val consumeWithFold: UIO[Long] =
-      source.runFold(0L){case (elems, elem) => elem + elems }
+      source.runFold(0L) { case (elems, elem) => elem + elems }
 
     val program = for {
       _ <- timed("consumeWithFold", consumeWithFold.flatMap(result => ZIO.succeed(println(s"result : $result"))))

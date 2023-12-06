@@ -15,7 +15,7 @@ object ZioExample extends ZIOAppDefault {
     val source: ZStream[Any, Nothing, Int] = ZStream.range(0, max, 1)
 
     val consumeWithFold: UIO[Long] = {
-      source.runFold(0L){case (elems, elem) => elems + elem}
+      source.runFold(0L) { case (elems, elem) => elems + elem }
     }
 
     val consumeWithRef: ZIO[Any, Nothing, Unit] = {
@@ -26,7 +26,7 @@ object ZioExample extends ZIOAppDefault {
       } yield ()
     }
 
-    val baselineListBuild = ZIO.succeed {(1.toLong to max.toLong).foreach(i => ZChannel.write(ExampleModel(i)))}.unit
+    val baselineListBuild = ZIO.succeed((1.toLong to max.toLong).foreach(i => ZChannel.write(ExampleModel(i)))).unit
 
     val program = for {
 //      _ <- timed("baselineListBuild", baselineListBuild)

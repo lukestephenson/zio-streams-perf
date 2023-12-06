@@ -5,14 +5,13 @@ import zio.test.Assertion._
 import zio.test.TestAspect.{exceptJS, flaky, nonFlaky, scala2Only, withLiveClock}
 import zio.test._
 
-
 object PushStreamSpec extends ZIOSpecDefault {
 
-  override def spec = suite("PushStreamSpec") (
+  override def spec = suite("PushStreamSpec")(
     suite("range")(
       test("range includes min value and excludes max value") {
         assertZIO(
-          (PushStream.range(1, 2)).runCollect
+          PushStream.range(1, 2).runCollect
         )(equalTo(Chunk(1)))
       },
       test("two large ranges can be concatenated") {
@@ -50,7 +49,7 @@ object PushStreamSpec extends ZIOSpecDefault {
             r <- ZIO.foreach(data)(f)
           } yield assert(l.toList)(equalTo(r))
         }
-      },
+      }
 //      test("laziness on chunks") {
 //        assertZIO(
 //          PushStream(1, 2, 3).mapZIO {

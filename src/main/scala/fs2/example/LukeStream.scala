@@ -4,8 +4,8 @@ import zio._
 
 class LukeStream[-R, +E, +A](val ops: LukeOps[A]) {
   def runFold[B](z: B)(fn: (B, A) => B): UIO[B] = {
-    def go(agg:B): LukeOps[B] = {
-      LukeOps.Read[A,B](element => LukeOps.Write(fn(agg, element)))
+    def go(agg: B): LukeOps[B] = {
+      LukeOps.Read[A, B](element => LukeOps.Write(fn(agg, element)))
     }
 
     val channel: LukeOps[B] = go(z)
@@ -14,7 +14,7 @@ class LukeStream[-R, +E, +A](val ops: LukeOps[A]) {
     ???
   }
 
-  //def runFold[B](z: B)(fn: (B, A) => B): UIO[B] = {
+  // def runFold[B](z: B)(fn: (B, A) => B): UIO[B] = {
   //    def run(o: LukeOps[A], agg: B): B = {
   //      o match {
   //        case LukeOps.Suspend(ops) => run(ops(), agg)
@@ -42,7 +42,7 @@ object LukeStream {
     }
   }
 
-  def suspend[R,E,A](stream: => LukeStream[R,E,A]) = {
+  def suspend[R, E, A](stream: => LukeStream[R, E, A]) = {
     new LukeStream(LukeOps.Suspend(() => stream.ops))
   }
 }
@@ -55,7 +55,7 @@ sealed trait LukeOps[+OutElem] { self =>
 
 object LukeOps {
   case class Suspend[OutElem](ops: () => LukeOps[OutElem]) extends LukeOps[OutElem]
-  case class Write[OutElem](e : OutElem) extends LukeOps[OutElem]
+  case class Write[OutElem](e: OutElem) extends LukeOps[OutElem]
   case class Fold[OutElem](self: LukeOps[OutElem], done: () => LukeOps[OutElem]) extends LukeOps[OutElem]
   case class Read[InElem, OutElem](fn: InElem => LukeOps[OutElem]) extends LukeOps[OutElem]
 }

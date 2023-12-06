@@ -13,7 +13,7 @@ object ZioFoldExample extends ZIOAppDefault {
     val mapped: ZStream[Any, String, Int] = range.mapZIO(i => if (i == 5) ZIO.fail("dead") else ZIO.succeed(i * 2))
     val folded: ZIO[Any, String, Long] = mapped.runFold(0L)(_ + _)
 
-    def runWithSize(max:Int) = {
+    def runWithSize(max: Int) = {
       val source: ZStream[Any, Nothing, Int] = ZStream.range(min = 0, max = max, chunkSize = 1)
         .mapZIOPar(8)(i => ZIO.succeed(i * 2))
 //        .mapZIO(i => ZIO.succeed(i*2))
@@ -37,7 +37,7 @@ object ZioFoldExample extends ZIOAppDefault {
 //      _ <- ZIO.sleep(10.seconds)
     } yield ()
 
-    program //.withRuntimeFlags(RuntimeFlags.disable(RuntimeFlag.CooperativeYielding))
+    program // .withRuntimeFlags(RuntimeFlags.disable(RuntimeFlag.CooperativeYielding))
   }
 
   private def timed(description: String, task: UIO[_]): ZIO[Any, Nothing, Unit] = {
