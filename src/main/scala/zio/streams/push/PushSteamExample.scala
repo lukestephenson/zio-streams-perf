@@ -23,6 +23,10 @@ object PushSteamExample extends ZIOAppDefault {
 
     val chunkedPushStream: PushStream[Any, Nothing, Chunk[Int]] =
       PushStream.fromIterable((0 until streamMax / chunkSize).map(i => Chunk.range(i * chunkSize, i * chunkSize + chunkSize)))
+
+    val smallChunkedPushStream: PushStream[Any, Nothing, Chunk[Int]] =
+      PushStream.fromIterable((0 until smallStreamSize / chunkSize).map(i => Chunk.range(i * chunkSize, i * chunkSize + chunkSize)))
+
     val program = for {
       _ <- ZIO.unit
       rangeZS = zStream.runFold(0L)(_ + _)
@@ -45,7 +49,7 @@ object PushSteamExample extends ZIOAppDefault {
       _ <- timed("PS - mapZioChunks", mapZioChunksPS)
       mapZioParZS = smallZStream.mapZIOPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
       mapZioParPS = smallPushStream.mapZIOPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      mapZioParChunksPS = chunkedPushStream.mapZIOParChunks(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _.sum)
+      mapZioParChunksPS = smallChunkedPushStream.mapZIOParChunks(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _.sum)
       _ <- timed("ZS - mapZioPar", mapZioParZS)
       _ <- timed("PS - mapZioPar", mapZioParPS)
       _ <- timed("PS - mapZioParChunks", mapZioParChunksPS)

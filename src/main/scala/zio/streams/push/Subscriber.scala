@@ -183,15 +183,16 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
         var stop = false
         val consumer = new Observer[OutR1, OutE1, InA] {
           override def onNext(elem: InA): ZIO[OutR1, Nothing, Ack] = {
-//            if (stop) Acks.Stop
-//            else
-            val x: ZIO[OutR1, Nothing, Ack.Continue.type] = for {
-              _ <- permits.acquire.commit
-              fiber <- f(elem).fork
-              _ <- buffer.offer(fiber)
-            } yield Ack.Continue
+            if (stop) Acks.Stop
+            else {
+              val x: ZIO[OutR1, Nothing, Ack.Continue.type] = for {
+                _ <- permits.acquire.commit
+                fiber <- f(elem).fork
+                _ <- buffer.offer(fiber)
+              } yield Ack.Continue
 
-            x
+              x
+            }
           }
 
           override def onComplete(): ZIO[OutR1, OutE1, Unit] = {
@@ -204,7 +205,8 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
             fiber <- buffer.take
             fiberResult <- fiber.join
             _ <- permits.release.commit
-            _ <- observer.onNext(fiberResult) // TODO Stop ignoring requests to Stop
+            ack <- observer.onNext(fiberResult)
+            _ = if (ack == Ack.Stop) stop = true else ()
           } yield ()
 
           runOnce *> take()
