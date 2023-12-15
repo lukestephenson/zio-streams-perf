@@ -15,44 +15,67 @@ object PushSteamExample extends ZIOAppDefault {
 
     val streamMax = 5_000_000
     val pushStream = PushStream.range(0, streamMax)
-    val zStream = ZStream.range(0, streamMax, chunkSize)
+    val zStream = ZStream.range(0, streamMax, 1)
+    val zStreamChunks = ZStream.range(0, streamMax, chunkSize)
 
     val smallStreamSize = 300_000
     val smallZStream = ZStream.range(0, smallStreamSize, chunkSize)
     val smallPushStream = PushStream.range(0, smallStreamSize)
 
     val chunkedPushStream: PushStream[Any, Nothing, Chunk[Int]] =
-      PushStream.fromIterable((0 until streamMax / chunkSize).map(i => Chunk.range(i * chunkSize, i * chunkSize + chunkSize)))
+      ChunkedPushStream.range(0, streamMax, chunkSize)
 
     val smallChunkedPushStream: PushStream[Any, Nothing, Chunk[Int]] =
-      PushStream.fromIterable((0 until smallStreamSize / chunkSize).map(i => Chunk.range(i * chunkSize, i * chunkSize + chunkSize)))
+      ChunkedPushStream.range(0, smallStreamSize, chunkSize)
 
     val program = for {
       _ <- ZIO.unit
-      rangeZS = zStream.runFold(0L)(_ + _)
-      rangePS = pushStream.runFold(0L)(_ + _)
-      rangeChunksPS = chunkedPushStream.runFold(0L)(_ + _.sum)
-      _ <- timed("ZS - range and fold", rangeZS)
-      _ <- timed("PS - range and fold", rangePS)
-      _ <- timed("PS - range and fold chunked", rangeChunksPS)
-      mapZS = zStream.map(i => i * 2).runFold(0L)(_ + _)
-      mapPS = pushStream.map(i => i * 2).runFold(0L)(_ + _)
-      mapChunksPS = chunkedPushStream.mapChunks(i => i * 2).runFold(0L)(_ + _.sum)
-      _ <- timed("ZS - map", mapZS)
-      _ <- timed("PS - map", mapPS)
-      _ <- timed("PS - mapChunks", mapChunksPS)
+      _ <- zio.Console.printLine(s"Running the tests with a chunk size of $chunkSize")
+//      baseline = ZIO.succeed(Chunk.range(0, streamMax).flatMap { i => if (i % 2 == 0) Chunk.single(i) else Chunk.empty }.sum)
+      baseline = ZIO.succeed {
+        var sum: Long = 0
+        (0 until streamMax).foreach(i =>
+          if (i % 2 == 0) sum = sum + 1 else ()
+        )
+        sum
+      }
+//      rangeZS = zStream.runFold(0L)(_ + _)
+//      rangePS = pushStream.runFold(0L)(_ + _)
+//      rangeChunksPS = chunkedPushStream.runFold(0L)(_ + _.sum)
+      _ <- timed("baseline map * 2 and sum", baseline)
+      _ <- timed("baseline map * 2 and sum", baseline)
+      _ <- timed("baseline map * 2 and sum", baseline)
+//      _ <- timed("ZS - range and fold", rangeZS)
+//      _ <- timed("PS - range and fold", rangePS)
+//      _ <- timed("PS - range and fold chunked", rangeChunksPS)
+//      mapZS = zStream.map(i => i * 2).runFold(0L)(_ + _)
+//      mapPS = pushStream.map(i => i * 2).runFold(0L)(_ + _)
+//      mapChunksPS = chunkedPushStream.mapChunks(i => i * 2).runFold(0L)(_ + _.sum)
+//      _ <- timed("ZS - map", mapZS)
+//      _ <- timed("PS - map", mapPS)
+//      _ <- timed("PS - mapChunks", mapChunksPS)
       mapZioZS = zStream.mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
+      mapZioZSChunks = zStreamChunks.mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
       mapZioPS = pushStream.mapZIO(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
       mapZioChunksPS = chunkedPushStream.mapZIOChunks(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _.sum)
       _ <- timed("ZS - mapZio", mapZioZS)
       _ <- timed("PS - mapZio", mapZioPS)
-      _ <- timed("PS - mapZioChunks", mapZioChunksPS)
-      mapZioParZS = smallZStream.mapZIOPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      mapZioParPS = smallPushStream.mapZIOPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
-      mapZioParChunksPS = smallChunkedPushStream.mapZIOParChunks(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _.sum)
-      _ <- timed("ZS - mapZioPar", mapZioParZS)
-      _ <- timed("PS - mapZioPar", mapZioParPS)
-      _ <- timed("PS - mapZioParChunks", mapZioParChunksPS)
+      _ <- timed("ZSChunks - mapZio", mapZioZSChunks)
+      _ <- timed("PSChunks - mapZio", mapZioChunksPS)
+//      mapZioParZS = smallZStream.mapZIOPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
+//      mapZioParPS = smallPushStream.mapZIOPar(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _)
+//      mapZioParChunksPS = smallChunkedPushStream.mapZIOParChunks(8)(i => ZIO.succeed(i * 2)).runFold(0L)(_ + _.sum)
+//      _ <- timed("ZS - mapZioPar", mapZioParZS)
+//      _ <- timed("PS - mapZioPar", mapZioParPS)
+//      _ <- timed("PS - mapZioParChunks", mapZioParChunksPS)
+      concatMapZS = zStream.mapConcatChunk(i => if (i % 2 == 0) Chunk.single(i) else Chunk.empty).runFold(0L)(_ + _)
+      concatMapZSChunks = zStreamChunks.mapConcatChunk(i => if (i % 2 == 0) Chunk.single(i) else Chunk.empty).runFold(0L)(_ + _)
+      concatMapPS = pushStream.mapConcat(i => if (i % 2 == 0) Some(i) else None).runFold(0L)(_ + _)
+      concatMapChunksPS = chunkedPushStream.mapConcatChunks(i => if (i % 2 == 0) Chunk.single(i) else Chunk.empty).runFold(0L)(_ + _.sum)
+      _ <- timed("ZS - mapConcat", concatMapZS)
+      _ <- timed("PS - mapConcat", concatMapPS)
+      _ <- timed("ZSChunks - mapConcat", concatMapZSChunks)
+      _ <- timed("PSChunks - mapConcat", concatMapChunksPS)
     } yield ()
 
     program
