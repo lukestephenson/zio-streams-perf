@@ -119,10 +119,7 @@ object PushStream {
         val iterator = elems.iterator
 
         def emit(): ZIO[OutR, OutE, Unit] = {
-          val hasNext = iterator.hasNext
-
-          if (hasNext) Observers.emitOne(observer, iterator.next(), emit())
-          else ZIO.unit
+          when(iterator.hasNext)(Observers.emitOne(observer, iterator.next(), emit()))
         }
 
         emit()
@@ -137,8 +134,7 @@ object PushStream {
       }
 
       private def loop[R, E](next: Int, observer: Observer[R, E, Int]): ZIO[R, E, Unit] = {
-        if (next >= end) ZIO.unit
-        else Observers.emitOne(observer, next, loop(next + 1, observer))
+        when(next < end)(Observers.emitOne(observer, next, loop(next + 1, observer)))
       }
     }
   }
@@ -152,7 +148,9 @@ trait SourcePushStream[A] extends PushStream[Any, Nothing, A] {
     }
   }
 
-  def startSource[OutR2 <: Any, OutE2 >: Nothing](observer: Observer[OutR2, OutE2, A]): ZIO[OutR2, OutE2, Unit]
+  protected def startSource[OutR2 <: Any, OutE2 >: Nothing](observer: Observer[OutR2, OutE2, A]): ZIO[OutR2, OutE2, Unit]
+
+  protected def when[R, E](condition: Boolean)(zio: => ZIO[R, E, Unit]): ZIO[R, E, Unit] = if (condition) zio else ZIO.unit
 }
 
 class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](
