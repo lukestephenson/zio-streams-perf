@@ -12,7 +12,10 @@ import ChunkedPushStream.*
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @Measurement(iterations = 3, timeUnit = TimeUnit.SECONDS, time = 3)
 @Warmup(iterations = 3, timeUnit = TimeUnit.SECONDS, time = 3)
-@Fork(value = 3, jvmArgsAppend = Array("-Dcats.effect.tracing.mode=none", "-Dcats.effect.auto.yield.threshold.multiplier=20"))  // zio uses a variable threshold, but roughly 10,240
+@Fork(
+  value = 3,
+  jvmArgsAppend = Array("-Dcats.effect.tracing.mode=none", "-Dcats.effect.auto.yield.threshold.multiplier=20")
+) // zio uses a variable threshold, but roughly 10,240
 @Threads(value = 1)
 @OperationsPerInvocation(1_000_000)
 class Benchmarks {

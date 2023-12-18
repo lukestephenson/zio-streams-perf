@@ -78,6 +78,14 @@ object PushSteamExample extends ZIOAppDefault {
       _ <- timed("PSChunks - mapConcat", concatMapChunksPS)
     } yield ()
 
+//    val program = PushStream.range(0, 10).mapZIO { i =>
+//      if (i == 5) ZIO.fail("stream terminated") else ZIO.succeed(println(s"received $i")).as(i)
+//    }.orElse(PushStream.range(11, 15)).runCollect.flatMap(r => ZIO.succeed(println(s"finished with $r")))
+//
+//    val program3 = ZStream.range(0, 10).mapZIO { i =>
+//      if (i == 5) ZIO.fail("stream terminated") else ZIO.succeed(println(s"received $i")).as(i)
+//    }.orElse(ZStream.range(11, 15)).runCollect.flatMap(r => ZIO.succeed(println(s"finished with $r")))
+
     program
   }
 
