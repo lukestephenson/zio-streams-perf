@@ -1,6 +1,7 @@
 package zio.streams.push
 
-import zio.streams.push.Ack.Stop
+import zio.streams.push.internal.Ack.Stop
+import zio.streams.push.internal.{Observer, Observers, SourcePushStream}
 import zio.{Chunk, ZIO}
 
 type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]

@@ -1,6 +1,7 @@
-package zio.streams.push
+package zio.streams.push.internal
 
 import zio.ZIO
+import zio.streams.push.internal.{Ack, Acks, Observer}
 
 object Observers {
   def emitAll[R, E, A](observer: Observer[R, E, A], iterable: Iterable[A]): ZIO[R, E, Ack] = {

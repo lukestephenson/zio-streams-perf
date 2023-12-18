@@ -1,11 +1,12 @@
-package zio.streams.push
+package zio.streams.push.demo
 
 import org.openjdk.jmh.annotations.*
 import zio.ZIO
 import zio.stream.ZStream
+import zio.streams.push.ChunkedPushStream.*
+import zio.streams.push.{ChunkedPushStream, PushStream}
 
 import java.util.concurrent.TimeUnit
-import ChunkedPushStream.*
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
