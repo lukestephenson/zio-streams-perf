@@ -92,19 +92,17 @@ Changing time unit to micro seconds
 [info] Benchmarks.zStreamFoldChunk100    thrpt   45  190.327 ± 4.988  ops/us
 
 [info] Benchmarks.pStreamMap             thrpt   45   16.622 ± 0.121  ops/us
-[info] Benchmarks.pStreamMapChunk100     thrpt   45  140.501 ± 1.030  ops/us
 [info] Benchmarks.zStreamMapChunk1       thrpt   45    3.915 ± 0.015  ops/us
 [info] Benchmarks.zStreamMapChunk100     thrpt   45  125.719 ± 0.917  ops/us
-
+[info] Benchmarks.pStreamMapChunk100     thrpt   45  140.501 ± 1.030  ops/us
 
 [info] Benchmarks.pStreamMapZio          thrpt   45   11.962 ± 0.027  ops/us
-[info] Benchmarks.pStreamMapZioChunk100  thrpt   45   28.972 ± 0.489  ops/us
 [info] Benchmarks.zStreamMapZioChunk1    thrpt   45    2.438 ± 0.015  ops/us
 [info] Benchmarks.zStreamMapZioChunk100  thrpt   45    3.206 ± 0.017  ops/us
-
+[info] Benchmarks.pStreamMapZioChunk100  thrpt   45   28.972 ± 0.489  ops/us
 
 [info] Benchmark                                        Mode  Cnt   Score   Error   Units
 [info] Benchmarks.pStreamMapParZio                     thrpt    9   0.350 ± 0.030  ops/us
-[info] Benchmarks.pStreamMapZioParChunk100             thrpt    9  20.822 ± 1.561  ops/us
 [info] Benchmarks.zStreamMapZioParChunk1               thrpt    9   0.047 ± 0.003  ops/us
 [info] Benchmarks.zStreamMapZioParChunk100             thrpt    9   0.075 ± 0.002  ops/us
+[info] Benchmarks.pStreamMapZioParChunk100             thrpt    9  20.822 ± 1.561  ops/us

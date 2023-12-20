@@ -25,11 +25,15 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
           }
 
           override def onError(e: OutE1): ZIO[OutR1, OutE1, Unit] = {
-            onComplete() // TODO pass through errors
+            drainAndThen(observer.onError(e))
           }
 
           override def onComplete(): ZIO[OutR1, OutE1, Unit] = {
-            permits.acquireN(parallelism).commit *> observer.onComplete()
+            drainAndThen(observer.onComplete())
+          }
+
+          private def drainAndThen(zio: ZIO[OutR1, OutE1, Unit]) = {
+            permits.acquireN(parallelism).commit *> zio
           }
         }
 

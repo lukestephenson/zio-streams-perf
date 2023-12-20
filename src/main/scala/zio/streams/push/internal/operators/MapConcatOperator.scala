@@ -1,7 +1,6 @@
 package zio.streams.push.internal.operators
 
 import zio.streams.push.PushStream.Operator
-import zio.streams.push.internal.operators.DefaultObserver
 import zio.streams.push.internal.{Ack, Observer, Observers}
 import zio.{UIO, ZIO}
 

@@ -97,13 +97,7 @@ object PushStream {
   def fromIterable[T](elems: Iterable[T]): PushStream[Any, Nothing, T] = {
     new SourcePushStream[T] {
       override def startSource[OutR, OutE](observer: Observer[OutR, OutE, T]): ZIO[OutR, OutE, Unit] = {
-        val iterator = elems.iterator
-
-        def emit(): ZIO[OutR, OutE, Unit] = {
-          when(iterator.hasNext)(Observers.emitOne(observer, iterator.next(), emit()))
-        }
-
-        emit()
+        Observers.emitAll(observer, elems).unit
       }
     }
   }
