@@ -1,11 +1,9 @@
 package zio.streams.push
 
-import zio.stm.TSemaphore
-import zio.streams.push.PushStream.Operator
+import zio.streams.push.internal.*
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators.*
-import zio.streams.push.internal.*
-import zio.{Chunk, Fiber, Promise, Queue, Ref, UIO, Unsafe, ZIO}
+import zio.{Chunk, Promise, UIO, Unsafe, ZIO}
 
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): ZIO[OutR2, OutE2, Unit]
