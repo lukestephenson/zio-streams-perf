@@ -8,11 +8,11 @@ TLDR; This is motivated by the desire to have streaming applications in ZIO that
 
 As the gist above mentions, I believe the primary reason for the difference in performance between Monix Observable and ZIO Streams is the push vs pull based implementation. Can a push based streaming implementation on ZIO be as fast as Monix Observable?
 
-This experiment attempts to introduce a ZIO native push based streaming implementation as a comparison point for performance. It is heavily inspired by the implemntation of Monix Observable, but with some key differences.
+This experiment attempts to introduce a ZIO native push based streaming implementation as a comparison point for performance. It is heavily inspired by the implementation of Monix Observable, but with some key differences.
 
 # Key design motivations
 
-## Based on ZIO
+## Based on Monix Observable
 Monix Observable has:
 ```
 trait Observer[-T] {
@@ -25,9 +25,9 @@ trait Observer[R, +E, -T] {
   def onNext(elem: T): ZIO[R, E, Ack]
 ```
 
-The Monix implementation is based on Future (as opposed to Monix Task). This means it needs to deal with a lot of things that Task gives you for free (cancellation, cooperative work scheduling). Things like the [RangeObservable](https://github.com/monix/monix/blob/2faa2cf7425ab0b88ea57b1ea193bce16613f42a/monix-reactive/shared/src/main/scala/monix/reactive/internal/builders/RangeObservable.scala#L59) need to deal with the complexities of when to yield to other operations,.
+The Monix implementation is based on Future (as opposed to Monix Task). This means it needs to deal with a lot of things that Task gives you for free (cancellation, cooperative work scheduling). Things like the [RangeObservable](https://github.com/monix/monix/blob/2faa2cf7425ab0b88ea57b1ea193bce16613f42a/monix-reactive/shared/src/main/scala/monix/reactive/internal/builders/RangeObservable.scala#L59) need to deal with the complexities of when to yield to other operations.
 
-By basing on ZIO, I'm hopeful that the implementation of individual PushStream operations is greatly simplified.
+By basing on ZIO (and not Future), I'm hopeful that the implementation of individual PushStream operations is greatly simplified.
 
 ## Chunking is not a hidden concern
 
@@ -44,67 +44,63 @@ I've instead opted to model this as a `PushStream[R,E,Chunk[A]]`. It is up to th
 
 With the `Chunk[A]` explicitly modelled, this means that operations on the `PushStream` like `map` make it incredibly clear that action is occurring on a chunk.
 
-However, this doesn't prevent convenience methods for working with chunks being expressed by an extension method `extension[R, E, A](stream: PushStream[R, E, Chunk[A]])`. We now have the best of both worlds. A relatively efficient streaming implementation. Where users of the stream can further benefit from chunking. But there shouldn't be any operations which break chunking or performance without the user being explicitly aware of that (eg calling a method called rechunk).
+However, this doesn't prevent convenience methods for working with chunks being expressed by an extension method `extension[R, E, A](stream: PushStream[R, E, Chunk[A]])` and we can even have a friendly type alias `type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]`. We now have the best of both worlds. A relatively efficient streaming implementation. Where users of the stream can further benefit from chunking. But there shouldn't be any operations which break chunking or performance without the user being explicitly aware of that (eg calling a method called rechunk).
 
 ## Initial performance results
 
-[info] Benchmark                          Mode  Cnt          Score          Error  Units
-[info] Benchmarks.zStreamFoldChunk1      thrpt   45    6008525.596 ±    39422.178  ops/s
-[info] Benchmarks.zStreamFoldChunk100    thrpt   45  199199753.330 ±  1239071.768  ops/s
-[info] Benchmarks.pStreamFold            thrpt   45   17277287.729 ±   259014.520  ops/s
-[info] Benchmarks.pStreamFoldChunk100    thrpt   45  214827313.925 ± 38097615.347  ops/s
+Here are some benchmarks for various operations. The benchmarks are checked into this project. To run locally use `sbt jmh/run`.
 
-[info] Benchmarks.zStreamMapChunk1       thrpt   45    3838999.772 ±    12943.340  ops/s
-[info] Benchmarks.zStreamMapChunk100     thrpt   45   85526089.256 ±  2972021.914  ops/s
-[info] Benchmarks.pStreamMap             thrpt   45   16602089.037 ±   394339.262  ops/s
-[info] Benchmarks.pStreamMapChunk100     thrpt   45   75965252.038 ±  3210275.007  ops/s
+### fold
 
-[info] Benchmarks.pStreamMapZio          thrpt   45   12085819.848 ±    29173.786  ops/s
-[info] Benchmarks.pStreamMapZioChunk100  thrpt   45   31029240.938 ±  1435441.178  ops/s
-[info] Benchmarks.zStreamMapZioChunk1    thrpt   45    2469936.204 ±    22921.638  ops/s
-[info] Benchmarks.zStreamMapZioChunk100  thrpt   45    3213514.214 ±    17188.996  ops/s
-
-New ZIO version
-
-[info] Benchmark                          Mode  Cnt          Score         Error  Units
-[info] Benchmarks.pStreamFold            thrpt   45   17052071.674 ±   92675.435  ops/s
-[info] Benchmarks.pStreamFoldChunk100    thrpt   45  168552878.362 ±  915783.006  ops/s
-[info] Benchmarks.zStreamFoldChunk1      thrpt   45    6489978.146 ±   80717.548  ops/s
-[info] Benchmarks.zStreamFoldChunk100    thrpt   45  227923877.691 ± 1236905.324  ops/s
-
-[info] Benchmarks.pStreamMap             thrpt   45   16529324.832 ±  387493.016  ops/s
-[info] Benchmarks.pStreamMapChunk100     thrpt   45  133082390.071 ± 4663580.444  ops/s
-[info] Benchmarks.zStreamMapChunk1       thrpt   45    4232135.591 ±   89443.133  ops/s
-[info] Benchmarks.zStreamMapChunk100     thrpt   45  127810998.859 ± 1567333.202  ops/s
-
-[info] Benchmarks.pStreamMapZio          thrpt   45   11733228.462 ±  135992.875  ops/s
-[info] Benchmarks.pStreamMapZioChunk100  thrpt   45   33451875.279 ± 3557900.500  ops/s
-[info] Benchmarks.zStreamMapZioChunk1    thrpt   45    2332292.650 ±   32694.367  ops/s
-[info] Benchmarks.zStreamMapZioChunk100  thrpt   45    3003755.877 ±   28930.822  ops/s
-
-
-Changing time unit to micro seconds
-
+With chunk size 1: Push stream is 300% faster 
+With chunk size 100: ZSteam is 14% faster
+```
 [info] Benchmark                          Mode  Cnt    Score   Error   Units
 [info] Benchmarks.pStreamFold            thrpt   45   17.783 ± 0.461  ops/us
 [info] Benchmarks.pStreamFoldChunk100    thrpt   45  167.333 ± 2.454  ops/us
 [info] Benchmarks.zStreamFoldChunk1      thrpt   45    5.853 ± 0.072  ops/us
 [info] Benchmarks.zStreamFoldChunk100    thrpt   45  190.327 ± 4.988  ops/us
+```
 
+### map
+
+With chunk size 1: Push stream is 400% faster
+With chunk size 100: Push stream is 12% faster
+
+```
 [info] Benchmarks.pStreamMap             thrpt   45   16.622 ± 0.121  ops/us
 [info] Benchmarks.pStreamMapChunk100     thrpt   45  140.501 ± 1.030  ops/us
 [info] Benchmarks.zStreamMapChunk1       thrpt   45    3.915 ± 0.015  ops/us
 [info] Benchmarks.zStreamMapChunk100     thrpt   45  125.719 ± 0.917  ops/us
+```
 
+### mapZio
 
+With chunk size 1: Push stream is 409% faster
+With chunk size 100: Push stream is 900% faster
+
+```
 [info] Benchmarks.pStreamMapZio          thrpt   45   11.962 ± 0.027  ops/us
 [info] Benchmarks.pStreamMapZioChunk100  thrpt   45   28.972 ± 0.489  ops/us
 [info] Benchmarks.zStreamMapZioChunk1    thrpt   45    2.438 ± 0.015  ops/us
 [info] Benchmarks.zStreamMapZioChunk100  thrpt   45    3.206 ± 0.017  ops/us
+```
 
+# MapParZio
 
+With chunk size 1: Push stream is 740% faster
+With chunk size 100: Push stream is 443% faster
+
+```
 [info] Benchmark                                        Mode  Cnt   Score   Error   Units
 [info] Benchmarks.pStreamMapParZio                     thrpt    9   0.350 ± 0.030  ops/us
-[info] Benchmarks.pStreamMapZioParChunk100             thrpt    9  20.822 ± 1.561  ops/us
 [info] Benchmarks.zStreamMapZioParChunk1               thrpt    9   0.047 ± 0.003  ops/us
 [info] Benchmarks.zStreamMapZioParChunk100             thrpt    9   0.075 ± 0.002  ops/us
+[info] Benchmarks.pStreamMapZioParChunk100             thrpt    9  20.822 ± 1.561  ops/us
+```
+
+## Next steps
+
+I acknowledge this push based streaming implementation is far from perfect. But hopefully it is complete enough to serve as a comparison for discussion (if not I can try to improve).
+
+I'm keen to understand why pull based streams are so much more popular than pushed based streams. If pushed based streams are faster due to their implementation, then I'm interested to see if there is demand for a push based streaming implementation.
