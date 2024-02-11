@@ -99,6 +99,29 @@ With chunk size 100: Push stream is 443% faster
 [info] Benchmarks.pStreamMapZioParChunk100             thrpt    9  20.822 ± 1.561  ops/us
 ```
 
+# Map , MapZIO, Map
+
+The following performance test:
+```
+runZIO(ZStream.range(0, 1_000_000, 100)
+  .mapZIO(i => ZIO.succeed(i * 4))
+  .map(i => i / 2)
+  .mapZIO(i => ZIO.succeed(i /2))
+  .runFold(0)(_ + _)
+)
+```
+
+With chunk size 1: Push stream is 790% faster
+With chunk size 100: Push stream is 900% faster
+
+```
+[info] Benchmark                                            Mode  Cnt   Score   Error   Units
+[info] Benchmarks.pStream_MapZIO_Map_MapZIO_fold_Chunk1    thrpt    9   8.899 ± 0.065  ops/us
+[info] Benchmarks.pStream_MapZIO_Map_MapZIO_fold_Chunk100  thrpt    9  13.260 ± 0.240  ops/us
+[info] Benchmarks.zStream_Map_MapZIO_fold_Chunk1           thrpt    9   1.256 ± 0.012  ops/us
+[info] Benchmarks.zStream_Map_MapZIO_fold_Chunk100         thrpt    9   1.476 ± 0.011  ops/us
+```
+
 ## Next steps
 
 I acknowledge this push based streaming implementation is far from perfect. But hopefully it is complete enough to serve as a comparison for discussion (if not I can try to improve).
