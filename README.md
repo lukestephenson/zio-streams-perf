@@ -52,8 +52,8 @@ Here are some benchmarks for various operations. The benchmarks are checked into
 
 ### fold
 
-With chunk size 1: Push stream is 300% faster 
-With chunk size 100: ZSteam is 14% faster
+- With chunk size 1: Push stream is 300% faster 
+- With chunk size 100: ZSteam is 14% faster
 ```
 [info] Benchmark                          Mode  Cnt    Score   Error   Units
 [info] Benchmarks.pStreamFold            thrpt   45   17.783 ± 0.461  ops/us
@@ -64,8 +64,8 @@ With chunk size 100: ZSteam is 14% faster
 
 ### map
 
-With chunk size 1: Push stream is 400% faster
-With chunk size 100: Push stream is 12% faster
+- With chunk size 1: Push stream is 400% faster
+- With chunk size 100: Push stream is 12% faster
 
 ```
 [info] Benchmarks.pStreamMap             thrpt   45   16.622 ± 0.121  ops/us
@@ -76,8 +76,8 @@ With chunk size 100: Push stream is 12% faster
 
 ### mapZio
 
-With chunk size 1: Push stream is 409% faster
-With chunk size 100: Push stream is 900% faster
+- With chunk size 1: Push stream is 409% faster
+- With chunk size 100: Push stream is 900% faster
 
 ```
 [info] Benchmarks.pStreamMapZio          thrpt   45   11.962 ± 0.027  ops/us
@@ -88,8 +88,8 @@ With chunk size 100: Push stream is 900% faster
 
 # MapParZio
 
-With chunk size 1: Push stream is 740% faster
-With chunk size 100: Push stream is 443% faster
+- With chunk size 1: Push stream is 740% faster
+- With chunk size 100: Push stream is 443% faster
 
 ```
 [info] Benchmark                                        Mode  Cnt   Score   Error   Units
@@ -111,8 +111,8 @@ runZIO(ZStream.range(0, 1_000_000, 100)
 )
 ```
 
-With chunk size 1: Push stream is 790% faster
-With chunk size 100: Push stream is 900% faster
+- With chunk size 1: Push stream is 790% faster
+- With chunk size 100: Push stream is 900% faster
 
 ```
 [info] Benchmark                                            Mode  Cnt   Score   Error   Units
