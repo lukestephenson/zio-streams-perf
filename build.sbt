@@ -3,7 +3,7 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "3.3.1"
 
 //val zioVersion = "2.0.18+16-9a15165a-SNAPSHOT"
-val zioVersion = "2.0.21"
+val zioVersion = "2.1-RC1"
 
 resolvers += Resolver.mavenLocal
 

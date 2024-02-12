@@ -106,7 +106,7 @@ class Benchmarks {
 
   @Benchmark
   @OperationsPerInvocation(100_000)
-  def pStreamMapParZio() = {
+  def pStreamMapZioPar() = {
     runZIO(PushStream.range(0, 100_000).mapZIOPar(4)(i => ZIO.succeed(i * 2)).runFold(0)(_ + _))
   }
 

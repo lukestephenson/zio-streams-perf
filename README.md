@@ -46,7 +46,80 @@ With the `Chunk[A]` explicitly modelled, this means that operations on the `Push
 
 However, this doesn't prevent convenience methods for working with chunks being expressed by an extension method `extension[R, E, A](stream: PushStream[R, E, Chunk[A]])` and we can even have a friendly type alias `type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]`. We now have the best of both worlds. A relatively efficient streaming implementation. Where users of the stream can further benefit from chunking. But there shouldn't be any operations which break chunking or performance without the user being explicitly aware of that (eg calling a method called rechunk).
 
-## Initial performance results
+## Revised performance results (compared to ZIO 2.1-RC1)
+
+Here are some benchmarks for various operations. The benchmarks are checked into this project. To run locally use `sbt jmh/run`.
+
+### fold
+
+- With chunk size 1: Push stream is 267% faster
+- With chunk size 100: ZSteam is 17% faster
+```
+[info] Benchmarks.pStreamFold                              thrpt    9   15.356 ±  0.163  ops/us
+[info] Benchmarks.pStreamFoldChunk100                      thrpt    9  168.338 ±  1.111  ops/us
+[info] Benchmarks.zStreamFoldChunk1                        thrpt    9    5.736 ±  0.197  ops/us
+[info] Benchmarks.zStreamFoldChunk100                      thrpt    9  195.889 ±  3.201  ops/us
+```
+
+### map
+
+- With chunk size 1: Push stream is 380% faster
+- With chunk size 100: Push stream is 26% faster
+
+```
+[info] Benchmarks.pStreamMap                               thrpt    9   14.293 ±  0.336  ops/us
+[info] Benchmarks.pStreamMapChunk100                       thrpt    9  158.887 ± 10.353  ops/us
+[info] Benchmarks.zStreamMapChunk1                         thrpt    9    3.757 ±  0.090  ops/us
+[info] Benchmarks.zStreamMapChunk100                       thrpt    9  125.675 ±  2.582  ops/us
+```
+
+### mapZio
+
+- With chunk size 1: Push stream is 460% faster
+- With chunk size 100: Push stream is 1000% faster
+
+```
+[info] Benchmarks.pStreamMapZio                            thrpt    9   10.779 ±  0.310  ops/us
+[info] Benchmarks.pStreamMapZioChunk100                    thrpt    9   31.197 ±  7.183  ops/us
+[info] Benchmarks.zStreamMapZioChunk1                      thrpt    9    2.332 ±  0.022  ops/us
+[info] Benchmarks.zStreamMapZioChunk100                    thrpt    9    2.980 ±  0.085  ops/us
+```
+
+# MapParZio
+
+- With chunk size 1: Push stream is 660% faster
+- With chunk size 100: Not even in the same ballpark
+
+```
+[info] Benchmarks.pStreamMapZioPar                         thrpt    9    0.345 ±  0.019  ops/us
+[info] Benchmarks.pStreamMapZioParChunk100                 thrpt    9   21.044 ±  1.122  ops/us
+[info] Benchmarks.zStreamMapZioParChunk1                   thrpt    9    0.052 ±  0.002  ops/us
+[info] Benchmarks.zStreamMapZioParChunk100                 thrpt    9    0.086 ±  0.002  ops/us
+```
+
+# Map , MapZIO, Map
+
+The following performance test:
+```
+runZIO(ZStream.range(0, 1_000_000, 100)
+  .mapZIO(i => ZIO.succeed(i * 4))
+  .map(i => i / 2)
+  .mapZIO(i => ZIO.succeed(i /2))
+  .runFold(0)(_ + _)
+)
+```
+
+- With chunk size 1: Push stream is 695% faster
+- With chunk size 100: Push stream is 980% faster
+
+```
+[info] Benchmarks.pStream_MapZIO_Map_MapZIO_fold_Chunk1    thrpt    9    8.113 ±  0.162  ops/us
+[info] Benchmarks.pStream_MapZIO_Map_MapZIO_fold_Chunk100  thrpt    9   13.523 ±  0.267  ops/us
+[info] Benchmarks.zStream_Map_MapZIO_fold_Chunk1           thrpt    9    1.166 ±  0.013  ops/us
+[info] Benchmarks.zStream_Map_MapZIO_fold_Chunk100         thrpt    9    1.371 ±  0.021  ops/us
+```
+
+## Initial performance results (compared to ZIO 2.0.21)
 
 Here are some benchmarks for various operations. The benchmarks are checked into this project. To run locally use `sbt jmh/run`.
 
