@@ -1,12 +1,9 @@
 package zio.streams.push
 
-import zio.stream.ZStream
-import zio.stream.ZStream.fromZIOOption
 import zio.streams.push.internal.*
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators.*
-import zio.{Chunk, Promise, Scope, Trace, UIO, Unsafe, ZIO, ZIOApp, ZIOAppArgs, ZIOAppDefault}
-import zio.durationInt
+import zio.{Chunk, Promise, Scope, Trace, UIO, Unsafe, ZIO, ZIOAppArgs, ZIOAppDefault, durationInt}
 
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): ZIO[OutR2, OutE2, Unit]
@@ -36,7 +33,7 @@ trait PushStream[-R, +E, +A] { self =>
           override def onNext(elem: A1): ZIO[OutR2, OutE2, Ack] = observer.onNext(elem)
 
           override def onError(e: OutE2): ZIO[OutR2, OutE2, Unit] = {
-            ZIO.succeed(println("received error")) *> that.subscribe(observer)
+            that.subscribe(observer)
           }
         })
       }
@@ -63,26 +60,20 @@ trait PushStream[-R, +E, +A] { self =>
           ZIO.succeed {
             zState = f(zState, elem)
           }.as(Continue)
-
-//          zState = f(zState, elem)
-//          Acks.Continue
         }
 
-        override def onError(e: E): ZIO[R, E, Unit] = zio.Console.printLine("fold picked up a failure").either *> completion.fail(e).unit
+        override def onError(e: E): ZIO[R, E, Unit] = completion.fail(e).unit
 
         override def onComplete(): UIO[Unit] = {
           // TODO consider using a ref / compare performance
           ZIO.suspendSucceed(completion.succeed(zState).unit)
         }
-      }).onExit(exit => zio.Console.printLine(s"runFold stream $exit").ignore)
+      })
 
-      val x: ZIO[R, E, B] = for {
+      for {
         _ <- stream
-        _ <- zio.Console.printLine("stream has terminated").ignore
         result <- completion.await
       } yield result
-
-      x.onExit(exit => zio.Console.printLine(s"runFold $exit").ignore)
     }
   }
 
@@ -114,7 +105,7 @@ object PushStream {
   def fromIterable[T](elems: Iterable[T]): PushStream[Any, Nothing, T] = {
     new SourcePushStream[T] {
       override def startSource[OutR, OutE](observer: Observer[OutR, OutE, T]): ZIO[OutR, OutE, Unit] = {
-        Observers.emitAll(observer, elems).unit *> zio.Console.printLine("done emitting elements").ignore
+        Observers.emitAll(observer, elems).unit
       }
     }
   }
@@ -132,18 +123,3 @@ object PushStream {
   }
 }
 
-object Foo extends ZIOAppDefault {
-  override def run: ZIO[Foo.Environment with ZIOAppArgs with Scope, Any, Any] = {
-    for {
-      result <- PushStream.fromIterable(1 to 4).mapZIOPar(953)(a => ZIO.succeed(a).delay(1.millisecond)).runCollect
-      isSorted = List.from(1 to 4) == result.toList
-      _ <- zio.Console.printLine(s"$isSorted - $result")
-      job = (zio.Console.printLine("never fiber") *> ZIO.never *> zio.Console.printLine("not expected")).onInterrupt(zio.Console.printLine(
-        "1 - interrupted"
-      ).either)
-      fiber <- job.fork
-      _ <-
-        ZIO.sleep(1.second) *> zio.Console.printLine("interrupt fiber") *> fiber.interrupt *> zio.Console.printLine("done interrupt fiber")
-    } yield ()
-  }
-}

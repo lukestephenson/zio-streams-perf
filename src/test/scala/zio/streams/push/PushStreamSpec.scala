@@ -105,16 +105,12 @@ object PushStreamSpec extends ZIOSpecDefault {
           latch2 <- Promise.make[Nothing, Unit]
           result <- PushStream(1, 2, 3)
             .mapZIOPar(3) {
-              case 1 => (latch1.succeed(()) *> ZIO.never *> zio.Console.printLine("not expected")).onInterrupt(
-                  zio.Console.printLine("1 - interrupted").either *> interrupted.update(_ + 1)
-                )
-              case 2 =>
-                (latch2.succeed(()) *> ZIO.never).onInterrupt(zio.Console.printLine("2 - interrupted").either *> interrupted.update(_ + 1))
-              case 3 => latch1.await *> latch2.await *> zio.Console.printLine("3 - about to fail") *> ZIO.fail("Boom")
+              case 1 => (latch1.succeed(()) *> ZIO.never).onInterrupt(interrupted.update(_ + 1))
+              case 2 => (latch2.succeed(()) *> ZIO.never).onInterrupt(interrupted.update(_ + 1))
+              case 3 => latch1.await *> latch2.await *> ZIO.fail("Boom")
             }
             .runDrain
             .exit
-          _ <- zio.Console.printLine("push stream has finished").ignore
           count <- interrupted.get
         } yield assert(count)(equalTo(2)) && assert(result)(fails(equalTo("Boom")))
       } @@ nonFlaky,
@@ -130,12 +126,11 @@ object PushStreamSpec extends ZIOSpecDefault {
       } @@ nonFlaky,
       test("propagates error of original stream") {
         for {
-          fiber <- (PushStream(1, 2, 3, 4, 5, 6, 7, 8, 9, 10) ++ PushStream.fail(new Throwable("Boom"))) // */
-            .mapZIOPar(2)(i => ZIO.sleep(1.second) *> zio.Console.printLine(s"done $i"))
+          fiber <- (PushStream(1, 2, 3, 4, 5, 6, 7, 8, 9, 10) ++ PushStream.fail(new Throwable("Boom")))
+            .mapZIOPar(2)(_ => ZIO.sleep(1.second))
             .runDrain
             .fork
           _ <- TestClock.adjust(5.seconds)
-          _ <- zio.Console.printLine("waiting").ignore
           exit <- fiber.await
         } yield assert(exit)(fails(hasMessage(equalTo("Boom"))))
       }
