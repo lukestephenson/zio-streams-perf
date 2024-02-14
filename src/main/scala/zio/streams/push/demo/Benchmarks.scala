@@ -28,7 +28,7 @@ class Benchmarks {
 
   @Benchmark
   def zStreamFoldChunk1() = {
-    runZIO(ZStream.range(0, 1_000_000, 1).runFold(0)(_+_))
+    runZIO(ZStream.range(0, 1_000_000, 1).runFold(0)(_ + _))
   }
 
   @Benchmark
@@ -48,22 +48,22 @@ class Benchmarks {
 
   @Benchmark
   def zStreamMapChunk1() = {
-    runZIO(ZStream.range(0, 1_000_000, 1).map(_*2).runFold(0)(_ + _))
+    runZIO(ZStream.range(0, 1_000_000, 1).map(_ * 2).runFold(0)(_ + _))
   }
 
   @Benchmark
   def zStreamMapChunk100() = {
-    runZIO(ZStream.range(0, 1_000_000, 100).map(_*2).runFold(0)(_ + _))
+    runZIO(ZStream.range(0, 1_000_000, 100).map(_ * 2).runFold(0)(_ + _))
   }
 
   @Benchmark
   def pStreamMap() = {
-    runZIO(PushStream.range(0, 1_000_000).map(_ *2).runFold(0)(_ + _))
+    runZIO(PushStream.range(0, 1_000_000).map(_ * 2).runFold(0)(_ + _))
   }
 
   @Benchmark
   def pStreamMapChunk100() = {
-    runZIO(ChunkedPushStream.range(0, 1_000_000, 100).mapChunks(_ *2).runFold(0)(_ + _.sum))
+    runZIO(ChunkedPushStream.range(0, 1_000_000, 100).mapChunks(_ * 2).runFold(0)(_ + _.sum))
   }
 
   @Benchmark
@@ -122,9 +122,8 @@ class Benchmarks {
     runZIO(ChunkedPushStream.range(0, 1_000_000, 100)
       .mapZIOChunks(i => ZIO.succeed(i * 4))
       .mapChunks(i => i / 2)
-      .mapZIOChunks(i => ZIO.succeed(i /2))
-      .runFold(0)(_ + _.sum)
-    )
+      .mapZIOChunks(i => ZIO.succeed(i / 2))
+      .runFold(0)(_ + _.sum))
   }
 
   @Benchmark
@@ -133,8 +132,7 @@ class Benchmarks {
       .mapZIO(i => ZIO.succeed(i * 4))
       .map(i => i / 2)
       .mapZIO(i => ZIO.succeed(i / 2))
-      .runFold(0)(_ + _)
-    )
+      .runFold(0)(_ + _))
   }
 
   @Benchmark
@@ -142,9 +140,8 @@ class Benchmarks {
     runZIO(ZStream.range(0, 1_000_000, 100)
       .mapZIO(i => ZIO.succeed(i * 4))
       .map(i => i / 2)
-      .mapZIO(i => ZIO.succeed(i /2))
-      .runFold(0)(_ + _)
-    )
+      .mapZIO(i => ZIO.succeed(i / 2))
+      .runFold(0)(_ + _))
   }
 
   @Benchmark
@@ -153,7 +150,6 @@ class Benchmarks {
       .mapZIO(i => ZIO.succeed(i * 4))
       .map(i => i / 2)
       .mapZIO(i => ZIO.succeed(i / 2))
-      .runFold(0)(_ + _)
-    )
+      .runFold(0)(_ + _))
   }
 }

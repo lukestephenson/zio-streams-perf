@@ -12,7 +12,11 @@ class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](
     val transformedObserver: ZIO[OutR2, OutE2, Observer[OutR2, OutE2, InA]] = operator(observer)
 
     val subscribedObserver: ZIO[OutR2, OutE2, Unit] = transformedObserver
-      .flatMap(subscriberB => upstream.subscribe(subscriberB))
+      .flatMap { subscriberB =>
+        zio.Console.printLine(s"LiftByOperatorPushStream - subscribe").ignore *>
+          upstream.subscribe(subscriberB)
+            .onExit(exit => zio.Console.printLine(s"LiftByOperatorPushStream - $exit").ignore)
+      }
     subscribedObserver
   }
 }
