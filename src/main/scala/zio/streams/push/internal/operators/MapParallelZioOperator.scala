@@ -7,21 +7,27 @@ import zio.{Fiber, Promise, Queue, ZIO}
 
 class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => ZIO[OutR, OutE, OutB])
     extends Operator[InA, OutR, OutE, OutB] {
+
+  private enum Complete {
+    case Done
+  }
+
   override def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, OutB])
       : ZIO[OutR1, OutE1, Observer[OutR1, OutE1, InA]] = {
     TSemaphore.makeCommit(parallelism).flatMap { permits =>
       Queue.bounded[Fiber[OutE1, OutB]](parallelism * 2).flatMap { buffer =>
-        Promise.make[OutE1, Nothing].flatMap { failurePromise =>
+//        Promise.make[OutE1, Complete].flatMap { completionPromise =>
+        Promise.make[OutE1, Complete].flatMap { failurePromise =>
           var stop = false
 
           def cancelRunningJobs(): ZIO[Any, Nothing, Unit] = zio.Console.printLine(s"cancel running jobs ignored").either.unit
-//            for {
-//              fibers <- buffer.takeAll
-//              _ <- zio.Console.printLine(s"size ${fibers.size} cancelling fibers").either
-//              _ <- ZIO.foreachDiscard(fibers)(f => zio.Console.printLine(s"size ${fibers.size} - about to interrupt").either *> f.interrupt *> zio.Console.printLine(s"size ${fibers.size} - done interrupt").either)
-//              _ <- zio.Console.printLine(s"size ${fibers.size} done cancelling fibers").either
-//              _ <- buffer.shutdown
-//            } yield ()
+          //            for {
+          //              fibers <- buffer.takeAll
+          //              _ <- zio.Console.printLine(s"size ${fibers.size} cancelling fibers").either
+          //              _ <- ZIO.foreachDiscard(fibers)(f => zio.Console.printLine(s"size ${fibers.size} - about to interrupt").either *> f.interrupt *> zio.Console.printLine(s"size ${fibers.size} - done interrupt").either)
+          //              _ <- zio.Console.printLine(s"size ${fibers.size} done cancelling fibers").either
+          //              _ <- buffer.shutdown
+          //            } yield ()
 
           val consumer = new Observer[OutR1, OutE1, InA] {
             override def onNext(elem: InA): ZIO[OutR1, Nothing, Ack] = {
@@ -41,19 +47,19 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
             }
 
             override def onError(e: OutE1): ZIO[OutR1, OutE1, Unit] = {
-              zio.Console.printLine("error shutdown started").ignore *> drainAndThen(observer.onError(e)) *> zio.Console.printLine(
+              // for errors, we want to interrupt any outstanding work immediately
+              zio.Console.printLine("error shutdown started").ignore *> failurePromise.fail(e) *> zio.Console.printLine(
                 "error shutdown completed"
               ).ignore
             }
 
             override def onComplete(): ZIO[OutR1, OutE1, Unit] = {
-              zio.Console.printLine("onComplete shutdown started").ignore *> drainAndThen(observer.onComplete())
-            }
-
-            private def drainAndThen(task: ZIO[OutR1, OutE1, Unit]): ZIO[OutR1, OutE1, Unit] = {
-              zio.Console.printLine("drainAndThen permits waiting").ignore *>
+              // for completion, we want to allow all outstanding fibers to complete, and then signal completion (but only if
+              // obsever.onError hasn't been called already)
+              zio.Console.printLine("onComplete shutdown started").ignore *>
                 permits.acquireN(parallelism).commit *>
-                zio.Console.printLine("drainAndThen permits obtained").ignore *> task
+                zio.Console.printLine("onComplete everything is done - time to signal").ignore *>
+                observer.onComplete()
             }
           }
 
@@ -68,7 +74,14 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
                   ).either *> failurePromise.failCause(cause) *> fiber.interrupt.unit // TODO remove the either hack
                   errorSteps
                 },
-                success = { fiberResult => observer.onNext(fiberResult).map(ack => if (ack == Ack.Stop) stop = true else ()).unit }
+                success = { fiberResult =>
+                  if (fiberResult == Complete)
+                    zio.Console.printLine(
+                      "should never reach this point"
+                    ).either *> ZIO.dieMessage("should never reach this point")
+                  else
+                    observer.onNext(fiberResult.asInstanceOf[OutB]).map(ack => if (ack == Ack.Stop) stop = true else ()).unit
+                }
               )
               _ <- zio.Console.printLine(s"releasing permit").either *> permits.release.commit
             } yield ()
@@ -79,14 +92,21 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
           for {
             takeFiber <- take().onExit(exit => zio.Console.printLine(s"mapParallelOperator take has finished with $exit").ignore).fork
             // Only call onError once on downstream. TODO, handle other failure types
-            _ <- failurePromise.await.onError { cause =>
-              zio.Console.printLine(s"failure promise has completed").ignore *> ZIO.succeed { stop = true } *> ZIO.foreachDiscard(
-                cause.failureOption
-              )(e => observer.onError(e).either)
-            }.fork
+            _ <- failurePromise.await.foldCauseZIO(
+              failure = { cause =>
+                zio.Console.printLine(s"failure promise has completed").ignore *> ZIO.succeed {
+                  stop = true
+                } *> ZIO.foreachDiscard(
+                  cause.failureOption
+                )(e => observer.onError(e).either)
+              },
+              success = { _ => zio.Console.printLine(s"everything is completed").ignore *> observer.onComplete() }
+            )
+              .fork
           } yield consumer
         }
       }
     }
+//    }
   }
 }

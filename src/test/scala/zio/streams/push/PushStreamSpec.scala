@@ -1,10 +1,9 @@
 package zio.streams.push
 
-import zio.{Chunk, Promise, Queue, Ref, ZIO}
-import zio.test.Assertion.*
-import zio.test.TestAspect.{exceptJS, flaky, nonFlaky, scala2Only, withLiveClock}
 import zio.test.*
-import zio.durationInt
+import zio.test.Assertion.*
+import zio.test.TestAspect.nonFlaky
+import zio.{Chunk, Promise, Queue, Ref, ZIO, durationInt}
 
 object PushStreamSpec extends ZIOSpecDefault {
 
@@ -122,8 +121,8 @@ object PushStreamSpec extends ZIOSpecDefault {
       test("propagates correct error with subsequent mapZIOPar call (#4514)") {
         assertZIO(
           PushStream
-            .fromIterable(1 to 3)
-            .mapZIOPar(20)(i => if (i < 2) ZIO.succeed(i) else ZIO.fail("Boom"))
+            .fromIterable(1 to 50)
+            .mapZIOPar(20)(i => if (i < 10) ZIO.succeed(i) else ZIO.fail("Boom"))
             .mapZIOPar(20)(ZIO.succeed(_))
             .runCollect
             .either
