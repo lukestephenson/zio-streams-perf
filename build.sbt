@@ -16,6 +16,10 @@ lazy val root = (project in file("."))
       "dev.zio" %% "zio-streams" % zioVersion,
       "dev.zio" %% "zio-test" % zioVersion % Test,
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
+      // Monix - only for benchmarks
+      "io.monix" %% "monix" % "3.4.0",
+      "io.monix" %% "monix-reactive" % "3.4.0",
+      "io.monix" %% "monix-execution" % "3.4.0",
     )
   )
 

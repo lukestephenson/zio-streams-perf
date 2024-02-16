@@ -12,9 +12,7 @@ class LiftByOperatorPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, OutB](
     val transformedObserver: ZIO[OutR2, OutE2, Observer[OutR2, OutE2, InA]] = operator(observer)
 
     val subscribedObserver: ZIO[OutR2, OutE2, Unit] = transformedObserver
-      .flatMap { subscriberB =>
-          upstream.subscribe(subscriberB)
-      }
+      .flatMap(subscriberB => upstream.subscribe(subscriberB))
     subscribedObserver
   }
 }

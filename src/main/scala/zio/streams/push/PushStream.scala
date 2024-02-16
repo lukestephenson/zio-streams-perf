@@ -13,8 +13,8 @@ trait PushStream[-R, +E, +A] { self =>
   def mapZIO[R1 <: R, E1 >: E, A1](f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] =
     new LiftByOperatorPushStream(self, new MapZioOperator[A, R1, E1, A1](f))
 
-  def mapZIOPar[R1 <: R, E1 >: E, A1](parallelism: Int)(f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] =
-    new LiftByOperatorPushStream(this, new MapParallelZioOperator[A, R1, E1, A1](parallelism, f))
+  def mapZIOPar[R1 <: R, E1 >: E, A1](parallelism: Int, name: String = "unknown")(f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] =
+    new LiftByOperatorPushStream(this, new MapParallelZioOperator[A, R1, E1, A1](parallelism, f, name))
 
   def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
 
@@ -62,11 +62,11 @@ trait PushStream[-R, +E, +A] { self =>
           }.as(Continue)
         }
 
-        override def onError(e: E): ZIO[R, E, Unit] = completion.fail(e).unit
+        override def onError(e: E): ZIO[R, E, Unit] = zio.Console.printLine(s"fold onError $e").ignore *> completion.fail(e).unit
 
         override def onComplete(): UIO[Unit] = {
           // TODO consider using a ref / compare performance
-          ZIO.suspendSucceed(completion.succeed(zState).unit)
+          zio.Console.printLine(s"fold onComplete").ignore *> ZIO.suspendSucceed(completion.succeed(zState).unit)
         }
       })
 
@@ -122,4 +122,3 @@ object PushStream {
     }
   }
 }
-
