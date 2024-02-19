@@ -16,7 +16,7 @@ object ChunkedPushStream {
 
       private def loop[R, E](next: Int, observer: Observer[R, E, Chunk[Int]]): ZIO[R, E, Unit] = {
         when(next < end) {
-          val max = next + chunkSize
+          val max = Math.min(next + chunkSize, end)
           Observers.emitOne(observer, Chunk.fromArray(Array.range(next, max)), loop(max, observer))
         }
       }

@@ -3,7 +3,7 @@ package zio.streams.push
 import zio.streams.push.internal.*
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators.*
-import zio.{Chunk, Promise, UIO, Unsafe, ZIO}
+import zio.{Chunk, Promise, Trace, UIO, Unsafe, ZIO}
 
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): ZIO[OutR2, OutE2, Unit]
@@ -13,8 +13,8 @@ trait PushStream[-R, +E, +A] { self =>
   def mapZIO[R1 <: R, E1 >: E, A1](f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] =
     new LiftByOperatorPushStream(self, new MapZioOperator[A, R1, E1, A1](f))
 
-  def mapZIOPar[R1 <: R, E1 >: E, A1](parallelism: Int)(f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] =
-    new LiftByOperatorPushStream(this, new MapParallelZioOperator[A, R1, E1, A1](parallelism, f))
+  def mapZIOPar[R1 <: R, E1 >: E, A1](parallelism: Int, name: String = "default")(f: A => ZIO[R1, E1, A1]): PushStream[R1, E1, A1] =
+    new LiftByOperatorPushStream(this, new MapParallelZioOperator[A, R1, E1, A1](parallelism, f, name))
 
   def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
 
@@ -33,7 +33,7 @@ trait PushStream[-R, +E, +A] { self =>
           override def onNext(elem: A1): ZIO[OutR2, OutE2, Ack] = observer.onNext(elem)
 
           override def onError(e: OutE2): ZIO[OutR2, OutE2, Unit] = {
-            ZIO.succeed(println("received error")) *> that.subscribe(observer)
+            that.subscribe(observer)
           }
         })
       }
@@ -60,25 +60,26 @@ trait PushStream[-R, +E, +A] { self =>
           ZIO.succeed {
             zState = f(zState, elem)
           }.as(Continue)
-
-//          zState = f(zState, elem)
-//          Acks.Continue
         }
 
         override def onError(e: E): ZIO[R, E, Unit] = completion.fail(e).unit
 
         override def onComplete(): UIO[Unit] = {
-          completion.succeed(zState).unit
+          // TODO consider using a ref / compare performance
+          ZIO.suspendSucceed(completion.succeed(zState).unit)
         }
       })
 
-      val x: ZIO[R, E, B] = for {
+      for {
         _ <- stream
         result <- completion.await
       } yield result
-
-      x
     }
+  }
+
+  def runDrain(implicit trace: Trace): ZIO[R, E, Unit] = {
+    // TODO find a common abstraction here
+    runFold(())((_, _) => ()).unit
   }
 }
 
@@ -91,6 +92,15 @@ object PushStream {
   def apply[T](elems: T*): PushStream[Any, Nothing, T] = {
     fromIterable(elems)
   }
+
+  def fail[E](error: => E)(implicit trace: Trace): PushStream[Any, E, Nothing] =
+    fromZIO(ZIO.fail(error))
+
+  def fromZIO[R, E, A](fa: => ZIO[R, E, A])(implicit trace: Trace): PushStream[R, E, A] =
+    new SourcePushStream2[R, E, A]:
+      override protected def startSource[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): ZIO[OutR2, OutE2, Unit] = {
+        fa.flatMap(observer.onNext).unit
+      }
 
   def fromIterable[T](elems: Iterable[T]): PushStream[Any, Nothing, T] = {
     new SourcePushStream[T] {
