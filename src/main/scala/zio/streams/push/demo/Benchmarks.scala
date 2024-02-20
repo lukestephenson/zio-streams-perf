@@ -1,13 +1,13 @@
 package zio.streams.push.demo
 
+import monix.eval.Task as MonixTask
+import monix.execution.Scheduler.Implicits.global
 import monix.reactive.Observable
-import monix.eval.{Task => MonixTask}
 import org.openjdk.jmh.annotations.*
 import zio.ZIO
 import zio.stream.ZStream
 import zio.streams.push.ChunkedPushStream.*
 import zio.streams.push.{ChunkedPushStream, PushStream}
-import monix.execution.Scheduler.Implicits.global
 
 import java.util.concurrent.TimeUnit
 
