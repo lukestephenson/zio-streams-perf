@@ -59,7 +59,8 @@ trait PushStream[-R, +E, +A] { self =>
         override def onNext(elem: A): UIO[Ack] = {
           ZIO.succeed {
             zState = f(zState, elem)
-          }.as(Continue)
+            Continue
+          }
         }
 
         override def onError(e: E): UIO[Unit] = completion.fail(e).unit
