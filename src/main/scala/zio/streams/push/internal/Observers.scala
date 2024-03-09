@@ -19,14 +19,14 @@ object Observers {
     loop()
   }
 
-  inline def emit[R, E, A](observer: Observer[R, E, A], element: A, continue: => URIO[R, Ack]): URIO[R, Ack] = {
+  /*inline*/ def emit[R, E, A](observer: Observer[R, E, A], element: A, continue: => URIO[R, Ack]): URIO[R, Ack] = {
     observer.onNext(element).flatMap {
       case Ack.Stop => Acks.Stop
       case Ack.Continue => continue
     }
   }
 
-  inline def emitOne[R, E, A](observer: Observer[R, E, A], element: A, continue: => URIO[R, Unit]): URIO[R, Unit] = {
+  /*inline*/ def emitOne[R, E, A](observer: Observer[R, E, A], element: A, continue: => URIO[R, Unit]): URIO[R, Unit] = {
     observer.onNext(element).flatMap {
       case Ack.Stop => ZIO.unit
       case Ack.Continue => continue

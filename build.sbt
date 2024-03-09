@@ -1,10 +1,10 @@
 ThisBuild / version := "0.1.0-SNAPSHOT"
 
-ThisBuild / scalaVersion := "3.3.1"
+ThisBuild / scalaVersion := "2.13.9"
 
 //val zioVersion = "2.0.18+16-9a15165a-SNAPSHOT"
-val zioVersion = "2.1-RC1"
-//val zioVersion = "2.0.21"
+//val zioVersion = "2.1-RC1"
+val zioVersion = "2.0.21"
 
 val monixVersion = "3.4.1"
 
@@ -12,6 +12,7 @@ resolvers += Resolver.mavenLocal
 
 lazy val root = (project in file("."))
   .settings(
+    organization := "com.zendesk",
     name := "zio-streams-perf",
     libraryDependencies ++= Seq(
       // ZIO

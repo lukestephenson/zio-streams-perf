@@ -1,9 +1,9 @@
 package zio.streams.push
 
-import zio.streams.push.ChunkedPushStream.*
+import zio.streams.push.ChunkedPushStream._
 import zio.streams.push.PushStreamSpec.{suite, test}
-import zio.test.*
-import zio.test.Assertion.*
+import zio.test._
+import zio.test.Assertion._
 import zio.{Chunk, ZIO}
 
 object ChunkedPushStreamSpec extends ZIOSpecDefault {

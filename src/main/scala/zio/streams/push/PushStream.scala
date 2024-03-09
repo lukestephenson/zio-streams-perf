@@ -1,9 +1,12 @@
 package zio.streams.push
 
-import zio.streams.push.internal.*
+import zio.stream.ZStream
+import zio.streams.push.internal._
 import zio.streams.push.internal.Ack.{Continue, Stop}
-import zio.streams.push.internal.operators.*
-import zio.{Chunk, Promise, Trace, UIO, URIO, Unsafe, ZIO}
+import zio.streams.push.internal.operators._
+import zio.{Chunk, Exit, Promise, Schedule, Scope, Trace, UIO, URIO, Unsafe, ZIO}
+
+import java.io.IOException
 
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit]

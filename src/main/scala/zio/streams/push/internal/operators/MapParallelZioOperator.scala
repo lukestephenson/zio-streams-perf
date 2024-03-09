@@ -8,8 +8,10 @@ import zio.{Fiber, Promise, Queue, UIO, URIO, ZIO}
 class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => ZIO[OutR, OutE, OutB], name: String)
     extends Operator[InA, OutR, OutE, OutB] {
 
-  private enum Complete {
-    case Done
+  private sealed trait Complete 
+  
+  private object Complete {
+    case object Done extends Complete
   }
 
   override def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, OutB]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {

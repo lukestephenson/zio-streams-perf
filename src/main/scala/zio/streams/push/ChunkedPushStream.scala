@@ -4,9 +4,9 @@ import zio.streams.push.internal.Ack.Stop
 import zio.streams.push.internal.{Observer, Observers, SourcePushStream}
 import zio.{Chunk, URIO, ZIO}
 
-type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]
-
 object ChunkedPushStream {
+
+  type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]
 
   def range(start: Int, end: Int, chunkSize: Int): ChunkedPushStream[Any, Nothing, Int] = {
     new SourcePushStream[Any, Nothing, Chunk[Int]] {
@@ -23,7 +23,7 @@ object ChunkedPushStream {
     }
   }
 
-  extension [R, E, A](stream: ChunkedPushStream[R, E, A]) {
+  implicit class ChunkedPushStreamOps[R, E, A](stream: ChunkedPushStream[R, E, A]) {
 
     def mapChunks[A2](f: A => A2): ChunkedPushStream[R, E, A2] = {
       stream.map(chunkA => chunkA.map(f))
