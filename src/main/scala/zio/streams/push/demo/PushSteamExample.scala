@@ -91,7 +91,15 @@ object PushSteamExample extends ZIOAppDefault {
 //      if (i == 5) ZIO.fail("stream terminated") else ZIO.succeed(println(s"received $i")).as(i)
 //    }.orElse(ZStream.range(11, 15)).runCollect.flatMap(r => ZIO.succeed(println(s"finished with $r")))
 
-    program
+    val scheduled: PushStream[Any, Nothing, Int] = PushStream.range(10, 20).schedule(Schedule.fixed(1.second) && Schedule.recurs(5))
+    val program2: ZIO[Any, IOException, Chunk[Unit]] = scheduled.mapZIO{i =>
+      val x: IO[IOException, Unit] = zio.Console.printLine(s"saw $i")
+      val y: IO[IOException, Unit] = x
+      y
+    }.runCollect
+
+    program2
+//    PushStream.foo()
   }
 
   private def timed[R, E, A](description: String, task: ZIO[R, E, A]): ZIO[R, E, Unit] = {
@@ -108,5 +116,6 @@ object PushSteamExample extends ZIOAppDefault {
       val result = results.head._2
       ZIO.succeed(println(s"$description took ${time}ms on average over $iterations iterations to calculate $result"))
     }
+
   }
 }
