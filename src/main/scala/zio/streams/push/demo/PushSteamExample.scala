@@ -4,6 +4,9 @@ import zio.stream.ZStream
 import zio.streams.push.ChunkedPushStream.*
 import zio.streams.push.{ChunkedPushStream, PushStream}
 import zio.{Chunk, Scope, ZIO, ZIOAppArgs, ZIOAppDefault}
+import zio.*
+
+import java.io.IOException
 
 object PushSteamExample extends ZIOAppDefault {
   override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = {

@@ -8,7 +8,6 @@ import zio.Unsafe._
 import zio.internal.RingBuffer
 import zio.stream._
 import zio.stream.ZStream.Pull
-import zio.streams.push.ChunkedPushStream.ChunkedPushStream
 import zio.streams.push.{ChunkedPushStream, PushStream}
 
 import java.util.concurrent.atomic.AtomicBoolean

@@ -3,7 +3,7 @@ package zio.streams.push
 import zio.streams.push.internal.*
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators.*
-import zio.{Chunk, Promise, Trace, UIO, URIO, Unsafe, ZIO}
+import zio.{Chunk, Promise, Trace, UIO, URIO, Unsafe, ZIO, Scope, Exit, Schedule}
 
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit]
