@@ -9,7 +9,7 @@ class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
   def apply[OutR1 <: OutR, OutE1 >: OutE](out: Observer[OutR1, OutE1, InA]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
     val observer = new DefaultObserver[OutR1, OutE1, InA](out) {
       override def onNext(elem: InA): URIO[OutR1, Ack] = {
-        queue.offer(elem).flatMap(accepted => zio.Console.printLine(s"$elem - accepted $accepted").ignore).as(Ack.Continue)
+        queue.offer(elem).as(Ack.Continue)
       }
 
       override def onComplete(): URIO[OutR1, Unit] = {

@@ -171,9 +171,7 @@ object PushStream {
                     observer.onError(failure) *> scope.close(Exit.fail(failure)),
                 { downstream =>
                   val downSub: URIO[OutR2, Unit] = restore(downstream.subscribe(observer))
-                  val y: URIO[OutR2, Unit] =
-                    downSub.onExit(exit => scope.close(exit)).unit
-                  zio.Console.printLine("got downstream").ignore *> y
+                  downSub.onExit(exit => scope.close(exit)).unit
                 }
               ).onExit(exit => scope.close(exit))
             }
