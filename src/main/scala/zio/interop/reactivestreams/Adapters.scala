@@ -8,7 +8,6 @@ import zio.Unsafe._
 import zio.internal.RingBuffer
 import zio.stream._
 import zio.stream.ZStream.Pull
-import zio.streams.push.ChunkedPushStream.ChunkedPushStream
 import zio.streams.push.{ChunkedPushStream, PushStream}
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -72,7 +71,7 @@ object Adapters {
   def publisherToPushStream[O](
                             publisher: => Publisher[O],
                             bufferSize: => Int
-                          )(implicit trace: Trace): ZStream[Any, Throwable, O] = {
+                          )(implicit trace: Trace): PushStream[Any, Throwable, Chunk[O]] = {
 
     val pullOrFail =
       for {
@@ -84,7 +83,7 @@ object Adapters {
         process <- process(sub, q, () => subscriber.await(), () => subscriber.isDone)
       } yield process
     val pull = pullOrFail.catchAll(e => ZIO.succeed(Pull.fail(e)))
-    fromPull[Any, Throwable, O](pull)
+    fromPullToPushStream[Any, Throwable, O](pull)
   }
 
   def sinkToSubscriber[R, I, L, Z](
@@ -330,6 +329,6 @@ object Adapters {
                                                                                               trace: Trace
   ): PushStream[R, E, Chunk[A]] = {
     val x: ZIO[R with Scope, Nothing, PushStream[R, E, Chunk[A]]] = zio.map(pull => PushStream.repeatZIOOption(pull))
-    PushStream.unwrapScoped(x)
+    PushStream.unwrapScoped[R](x)
   }
 }

@@ -1,6 +1,7 @@
 package zio.streams.push
 
 import zio.stream.ZStream
+import zio.stream.ZStream.scoped
 import zio.streams.push.internal._
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators._
@@ -22,9 +23,17 @@ trait PushStream[-R, +E, +A] { self =>
   def scan[S](s: => S)(f: (S, A) => S)(implicit trace: Trace): PushStream[R, E, S] =
     scanZIO(s)((s, a) => ZIO.succeed(f(s, a)))
 
-  def scanZIO[R1 <: R, E1 >: E, S](s: => S)(f: (S, A) => ZIO[R1, E1, S])(implicit trace: Trace): PushStream[R1, E1, S] = {
+  def scanZIO[R1 <: R, E1 >: E, S](s: => S)(f: (S, A) => ZIO[R1, E1, S]): PushStream[R1, E1, S] = {
     new ScanZioPushStream(self, s, f)
   }
+
+  /**
+   * Threads the stream through the transformation function `f`.
+   */
+  def viaFunction[R2, E2, B](f: PushStream[R, E, A] => PushStream[R2, E2, B])(implicit
+                                                                        trace: Trace
+  ): PushStream[R2, E2, B] =
+    f(self)
 
   def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
 
@@ -138,35 +147,32 @@ object PushStream {
       }
     }
 
-  def unwrapScoped[R, E, A](f: => ZIO[R with Scope, E, PushStream[R, E, A]])(implicit trace: Trace): PushStream[R, E, A] = {
-    new PushStream[R, E, A] {
-      override def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit] = {
-        ZIO.uninterruptibleMask { restore =>
-          Scope.make.flatMap { scope =>
-//            val newObserver = new Observer[OutR2, OutE2, A] {
-//              override def onNext(elem: A): URIO[OutR2, Ack] = observer.onNext(elem)
-//
-//              override def onError(e: OutE2): URIO[OutR2, Unit] = observer.onError(e)
-//
-//              override def onComplete(): URIO[OutR2, Unit] = observer.onComplete()
-//            }
-            // TODO remove the orDie
-            restore(scope.extend(f)).foldZIO(
-              failure =>
-              zio.Console.printLine("failure").ignore *>
-                observer.onError(failure) *> scope.close(Exit.fail(failure)),
-              { downstream =>
-                val downSub: URIO[OutR2, Unit] = restore(downstream.subscribe(observer))
-                val y: URIO[OutR2, Unit] =
-                  downSub.onExit(exit => scope.close(exit)).unit
-                zio.Console.printLine("got downstream").ignore *> y
-              }
-            ).onExit(exit => scope.close(exit))
+  final class UnwrapScopedPartiallyApplied[R](private val dummy: Boolean = true) extends AnyVal {
+    def apply[E, A](fa: => ZIO[Scope with R, E, PushStream[R, E, A]])(implicit
+                                                                   trace: Trace
+    ): PushStream[R, E, A] =
+      new PushStream[R, E, A] {
+        override def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit] = {
+          ZIO.uninterruptibleMask { restore =>
+            Scope.make.flatMap { scope =>
+              // TODO remove the orDie
+              restore(scope.extend[OutR2](fa)).foldZIO(
+                failure =>
+                  zio.Console.printLine("failure").ignore *>
+                    observer.onError(failure) *> scope.close(Exit.fail(failure)),
+                { downstream =>
+                  val downSub: URIO[OutR2, Unit] = restore(downstream.subscribe(observer))
+                  val y: URIO[OutR2, Unit] =
+                    downSub.onExit(exit => scope.close(exit)).unit
+                  zio.Console.printLine("got downstream").ignore *> y
+                }
+              ).onExit(exit => scope.close(exit))
+            }
           }
         }
       }
-    }
   }
+  def unwrapScoped[R]: UnwrapScopedPartiallyApplied[R] = new UnwrapScopedPartiallyApplied[R]
 
 //  def unwrapScoped2[R, E, A](f: => ZIO[R with Scope, E, PushStream[R, E, A]])(implicit trace: Trace): PushStream[R, E, A] = {
 //    new PushStream[R, E, A] {
