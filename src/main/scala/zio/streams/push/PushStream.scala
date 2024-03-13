@@ -3,7 +3,7 @@ package zio.streams.push
 import zio.streams.push.internal.*
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators.*
-import zio.{Chunk, Promise, Trace, UIO, URIO, Unsafe, ZIO, Scope, Exit, Schedule}
+import zio.{Chunk, Promise, Trace, UIO, URIO, Unsafe, ZIO, Scope, Exit, Schedule, Queue}
 
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit]
@@ -52,6 +52,15 @@ trait PushStream[-R, +E, +A] { self =>
   def scheduleWith[R1 <: R, E1 >: E, B, C](
       schedule: => Schedule[R1, A, B])(f: A => C, g: B => C)(implicit trace: Trace): PushStream[R1, E1, C] = {
     new LiftByOperatorPushStream(this, new ScheduleOperator[A, R1, E1, B, C](schedule, f, g))
+  }
+
+  def bufferSliding(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
+    val queueDef: ZIO[Any with Scope, Nothing, Queue[A]] =
+      ZIO.acquireRelease(Queue.sliding[A](capacity))(_.shutdown)
+      
+    val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] = queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R,E](queue)))  
+    
+    PushStream.unwrapScoped(x)
   }
 
   def orElse[R1 <: R, E1 >: E, A1 >: A](

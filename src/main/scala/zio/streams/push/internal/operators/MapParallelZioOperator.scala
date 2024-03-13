@@ -125,6 +125,7 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
 
     }
 
+    // TODO these resources should ideally be scoped
     for {
       permits <- TSemaphore.makeCommit(parallelism)
       buffer <- Queue.bounded[Fiber[OutE1, OutB]](parallelism * 2)
