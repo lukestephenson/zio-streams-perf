@@ -101,6 +101,7 @@ object PushSteamExample extends ZIOAppDefault {
       y
     }.runCollect
 
+
     val a1: PushStream[Any, Nothing, Int] = PushStream.range(1,10)
     val a2: PushStream[Any, Throwable, Int] = a1.mapZIO[Any, Throwable, Int](i => ZIO.attempt(i + 10))
 
@@ -121,6 +122,10 @@ object PushSteamExample extends ZIOAppDefault {
 
     t2.runCollect *> program3 *>
       program4
+
+    val program7 = PushStream.range(1, 20).schedule(Schedule.fixed(1.second)).bufferSliding(1).mapZIO(i => zio.Console.printLine(s"got $i").ignore.delay(4500.milliseconds)).runDrain
+    
+    program7 *> zio.Console.printLine("done").ignore
 //    PushStream.foo()
   }
 
