@@ -106,11 +106,11 @@ object PushSteamExample extends ZIOAppDefault {
 
 
     val t1: ChunkedPushStream[Any, Nothing, Int] = ChunkedPushStream.range(1,10,2)
-    val t2: ChunkedPushStream[Any, Throwable, Int] = t1.mapZIOChunks[Any, Throwable, Int](i => ZIO.attempt(i + 10))
+    val t2: ChunkedPushStream[Any, Throwable, Int] = t1.mapZIOChunks(i => ZIO.attempt(i + 10))
 
     val p1: ChunkedPushStream[Any, Nothing, Int] = ChunkedPushStream.range(1, 1000, 100)
     val p1a: ChunkedPushStream[Any, Throwable, Int] = p1
-    val p2: ChunkedPushStream[Any, Throwable, Int] =  p1.scanZIOChunks[Any, Throwable, Int](0)((state, elem) => ZIO.attempt(state + elem))
+    val p2: ChunkedPushStream[Any, Throwable, Int] =  p1.scanZIOChunks(0)((state, elem) => ZIO.attempt(state + elem))
       val program3 = p2.runCollect
       .flatMap(result => zio.Console.printLine(s"result $result").ignore)
 

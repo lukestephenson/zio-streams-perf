@@ -29,12 +29,15 @@ object ChunkedPushStream {
       stream.map(chunkA => chunkA.map(f))
     }
 
-    def mapZIOChunks[A2](f: A => ZIO[R, E, A2]): ChunkedPushStream[R, E, A2] = {
+    def mapZIOChunks[A1](f: A => ZIO[R, E, A1]): ChunkedPushStream[R, E, A1] = {
       stream.mapZIO(chunkA => chunkA.mapZIO(f))
     }
 
-    def mapZIOParChunks[A2](parallelism: Int)(f: A => ZIO[R, E, A2]): ChunkedPushStream[R, E, A2] = {
-      stream.mapZIOPar(parallelism)(chunkA => chunkA.mapZIO(f))
+    def mapZIOParChunks[R1 <: R, E1 >: E, A2](parallelism: Int)(f: A => ZIO[R1, E1, A2]): ChunkedPushStream[R1, E1, A2] = {
+      stream.mapZIOPar[R1, E1, Chunk[A2]](parallelism) { chunkA =>
+        val x: ZIO[R1, E1, Chunk[A2]] = chunkA.mapZIO(f)
+        x
+      }
     }
 
     def mapConcatChunks[A2](f: A => Chunk[A2]): ChunkedPushStream[R, E, A2] = {
