@@ -1,5 +1,6 @@
 package zio.streams.push.demo
 
+import kyo.{KyoApp, Streams}
 import monix.eval.Task as MonixTask
 import monix.execution.Scheduler.Implicits.global
 import monix.reactive.Observable
@@ -33,12 +34,17 @@ class Benchmarks {
   def observableFoldChunk1() = {
     Observable.range(0, 1_000_000).foldLeftL(0L)(_ + _).runSyncUnsafe()
   }
+  
+  def kyoStreamFold() = {
+    val seq = (0 to 1_000_000)
+    KyoApp.run(Streams.initSeq(seq).runFold(0)(_ + _))
+  }
 
   @Benchmark
   def zStreamFoldChunk1() = {
     runZIO(ZStream.range(0, 1_000_000, 1).runFold(0)(_ + _))
   }
-
+    
   @Benchmark
   def zStreamFoldChunk100() = {
     runZIO(ZStream.range(0, 1_000_000, 100).runFold(0)(_ + _))
@@ -185,4 +191,10 @@ class Benchmarks {
       .mapZIO(i => ZIO.succeed(i / 2))
       .runFold(0)(_ + _))
   }
+
+  def kyoStreamMap() = {
+    val seq = (0 to 1_000_000)
+    KyoApp.run(Streams.initSeq(seq).transform(_ * 2).runFold(0)(_ + _))
+  }
+
 }
