@@ -10,6 +10,9 @@ val kyoVersion = "0.9.2"
 
 val monixVersion = "3.4.1"
 
+addCommandAlias("fmt", "scalafmtAll")
+addCommandAlias("check", "scalafmtCheckAll")
+
 lazy val root = (project in file("."))
   .settings(
     name := "zio-streams-perf",
