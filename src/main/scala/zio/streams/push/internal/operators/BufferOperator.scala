@@ -17,13 +17,11 @@ class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
         super.onComplete()
       }
     }
-    
+
     def queueProcessor(): URIO[OutR1, Ack] = {
-      queue.take.flatMap { (elem: InA) =>
-        Observers.emit(out, elem, queueProcessor())
-      }
-    } 
-    
+      queue.take.flatMap((elem: InA) => Observers.emit(out, elem, queueProcessor()))
+    }
+
     val x: ZIO[OutR1, Nothing, DefaultObserver[OutR1, OutE1, InA]] = queueProcessor().fork.as(observer)
     x
   }

@@ -3,7 +3,7 @@ package zio.streams.push
 import zio.streams.push.internal.*
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators.*
-import zio.{Chunk, Promise, Trace, UIO, URIO, Unsafe, ZIO, Scope, Exit, Schedule, Queue}
+import zio.{Chunk, Exit, Promise, Queue, Schedule, Scope, Trace, UIO, URIO, Unsafe, ZIO}
 
 trait PushStream[-R, +E, +A] { self =>
   def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit]
@@ -23,14 +23,11 @@ trait PushStream[-R, +E, +A] { self =>
     new ScanZioPushStream(self, s, f)
   }
 
-  /**
-   * Threads the stream through the transformation function `f`.
-   */
-  def viaFunction[R2, E2, B](f: PushStream[R, E, A] => PushStream[R2, E2, B])(implicit
-                                                                              trace: Trace
-  ): PushStream[R2, E2, B] =
+  /** Threads the stream through the transformation function `f`.
+    */
+  def viaFunction[R2, E2, B](f: PushStream[R, E, A] => PushStream[R2, E2, B])(implicit trace: Trace): PushStream[R2, E2, B] =
     f(self)
-    
+
   def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
 
   def runCollect: ZIO[R, E, Chunk[A]] = runFold(Chunk.empty[A])((chunk, t) => chunk.appended(t))
@@ -65,9 +62,10 @@ trait PushStream[-R, +E, +A] { self =>
   def bufferSliding(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
     val queueDef: ZIO[Any with Scope, Nothing, Queue[A]] =
       ZIO.acquireRelease(Queue.sliding[A](capacity))(_.shutdown)
-      
-    val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] = queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R,E](queue)))  
-    
+
+    val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
+      queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
+
     PushStream.unwrapScoped(x)
   }
 
@@ -167,8 +165,8 @@ object PushStream {
             // TODO remove the orDie
             restore(scope.extend(f)).foldZIO(
               failure =>
-              zio.Console.printLine("failure").ignore *>
-                observer.onError(failure) *> scope.close(Exit.fail(failure)),
+                zio.Console.printLine("failure").ignore *>
+                  observer.onError(failure) *> scope.close(Exit.fail(failure)),
               { downstream =>
                 val downSub: URIO[OutR2, Unit] = restore(downstream.subscribe(observer))
                 val y: URIO[OutR2, Unit] =

@@ -10,7 +10,8 @@ val kyoVersion = "0.9.2"
 
 val monixVersion = "3.4.1"
 
-resolvers += Resolver.mavenLocal
+addCommandAlias("fmt", "scalafmtAll")
+addCommandAlias("check", "scalafmtCheckAll")
 
 lazy val root = (project in file("."))
   .settings(

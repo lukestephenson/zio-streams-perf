@@ -95,14 +95,16 @@ object PushSteamExample extends ZIOAppDefault {
 //    }.orElse(ZStream.range(11, 15)).runCollect.flatMap(r => ZIO.succeed(println(s"finished with $r")))
 
     val scheduled: PushStream[Any, Nothing, Int] = PushStream.range(10, 20).schedule(Schedule.fixed(1.second) && Schedule.recurs(5))
-    val program2: ZIO[Any, IOException, Chunk[Unit]] = scheduled.mapZIO{i =>
+    val program2: ZIO[Any, IOException, Chunk[Unit]] = scheduled.mapZIO { i =>
       val x: IO[IOException, Unit] = zio.Console.printLine(s"saw $i")
       val y: IO[IOException, Unit] = x
       y
     }.runCollect
 
-    val program3 = PushStream.range(1, 20).schedule(Schedule.fixed(1.second)).bufferSliding(1).mapZIO(i => zio.Console.printLine(s"got $i").ignore.delay(4500.milliseconds)).runDrain
-    
+    val program3 = PushStream.range(1, 20).schedule(Schedule.fixed(1.second)).bufferSliding(1).mapZIO(i =>
+      zio.Console.printLine(s"got $i").ignore.delay(4500.milliseconds)
+    ).runDrain
+
     program3 *> zio.Console.printLine("done").ignore
 //    PushStream.foo()
   }
