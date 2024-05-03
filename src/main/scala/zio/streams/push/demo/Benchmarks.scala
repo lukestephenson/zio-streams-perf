@@ -34,9 +34,9 @@ class Benchmarks {
   def observableFoldChunk1() = {
     Observable.range(0, 1_000_000).foldLeftL(0L)(_ + _).runSyncUnsafe()
   }
-  
+
   def kyoStreamFold() = {
-    val seq = (0 to 1_000_000)
+    val seq = 0 to 1_000_000
     KyoApp.run(Streams.initSeq(seq).runFold(0)(_ + _))
   }
 
@@ -44,7 +44,7 @@ class Benchmarks {
   def zStreamFoldChunk1() = {
     runZIO(ZStream.range(0, 1_000_000, 1).runFold(0)(_ + _))
   }
-    
+
   @Benchmark
   def zStreamFoldChunk100() = {
     runZIO(ZStream.range(0, 1_000_000, 100).runFold(0)(_ + _))
@@ -193,7 +193,7 @@ class Benchmarks {
   }
 
   def kyoStreamMap() = {
-    val seq = (0 to 1_000_000)
+    val seq = 0 to 1_000_000
     KyoApp.run(Streams.initSeq(seq).transform(_ * 2).runFold(0)(_ + _))
   }
 

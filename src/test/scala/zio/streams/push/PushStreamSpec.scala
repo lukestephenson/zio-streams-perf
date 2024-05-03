@@ -24,7 +24,7 @@ object PushStreamSpec extends ZIOSpecDefault {
     }
 
   val pureStreamOfInts: Gen[Any, PushStream[Any, Nothing, Int]] =
-    Gen.bounded(0, 5)(pureStreamGen(Gen.int, _)) //.zipWith(Gen.function(Gen.boolean))(injectEmptyChunks)
+    Gen.bounded(0, 5)(pureStreamGen(Gen.int, _)) // .zipWith(Gen.function(Gen.boolean))(injectEmptyChunks)
 
   override def spec = suite("PushStreamSpec")(
     suite("mapZIO")(
@@ -137,7 +137,7 @@ object PushStreamSpec extends ZIOSpecDefault {
       test("scan")(check(pureStreamOfInts) { s =>
         for {
           streamResult <- s.scan(0)(_ + _).runCollect
-          chunkResult  <- s.runCollect.map(_.scan(0)(_ + _))
+          chunkResult <- s.runCollect.map(_.scan(0)(_ + _))
         } yield assert(streamResult)(equalTo(chunkResult))
       })
     ),
@@ -151,15 +151,15 @@ object PushStreamSpec extends ZIOSpecDefault {
             .mapZIO(n => Clock.currentTime(TimeUnit.MILLISECONDS).map(now => (n, now - start)))
             .runCollect
             .fork
-          _       <- TestClock.adjust(800.millis)
-          actual  <- fiber.join
+          _ <- TestClock.adjust(800.millis)
+          actual <- fiber.join
           expected = Chunk((1, 100L), (2, 200L), (3, 300L), (4, 400L), (5, 500L), (6, 600L), (7, 700L), (8, 800L))
         } yield assertTrue(actual == expected)
       },
       test("scheduleWith")(
         assertZIO(
           PushStream("A", "B", "C", "A", "B", "C")
-            .scheduleWith(Schedule.recurs(2) *> Schedule.fromFunction((_) => "Done"))(
+            .scheduleWith(Schedule.recurs(2) *> Schedule.fromFunction(_ => "Done"))(
               _.toLowerCase,
               identity
             )
@@ -169,7 +169,7 @@ object PushStreamSpec extends ZIOSpecDefault {
       test("scheduleEither")(
         assertZIO(
           PushStream("A", "B", "C")
-            .scheduleEither(Schedule.recurs(2) *> Schedule.fromFunction((_) => "!"))
+            .scheduleEither(Schedule.recurs(2) *> Schedule.fromFunction(_ => "!"))
             .runCollect
         )(equalTo(Chunk(Right("A"), Left("!"), Right("B"), Left("!")))) // Note this differs to ZStream assertion
       )
@@ -188,14 +188,14 @@ object PushStreamSpec extends ZIOSpecDefault {
           ref <- Ref.make(0)
           fa = for {
             newCount <- ref.updateAndGet(_ + 1)
-            res      <- if (newCount >= 5) ZIO.fail(None) else ZIO.succeed(newCount)
+            res <- if (newCount >= 5) ZIO.fail(None) else ZIO.succeed(newCount)
           } yield res
           res <- PushStream
             .repeatZIOOption(fa)
             .take(10)
             .runCollect
         } yield assert(res)(equalTo(Chunk(1, 2, 3, 4)))
-      ),
+      )
 //      test("stops evaluating the effect once it fails with None") {
 //        for {
 //          ref <- Ref.make(0)
@@ -231,22 +231,22 @@ object PushStreamSpec extends ZIOSpecDefault {
           )(equalTo(Chunk.empty))
         }
       ),
-    test("unwrapScoped") {
-      def stream(promise: Promise[Nothing, Unit]) =
-        PushStream.unwrapScoped {
-          val scoped = ZIO.acquireRelease(Console.print("acquire outer"))(_ => Console.print("release outer").orDie) *>
-            ZIO.suspendSucceed(promise.succeed(()) *> ZIO.never) *>
-            ZIO.succeed(PushStream(1, 2, 3))
-          scoped
-        }
-      for {
-        promise <- Promise.make[Nothing, Unit]
-        fiber   <- stream(promise).runDrain.fork
-        _       <- promise.await
-        _       <- fiber.interrupt
-        output  <- TestConsole.output
-      } yield assertTrue(output == Vector("acquire outer", "release outer"))
-    }
+      test("unwrapScoped") {
+        def stream(promise: Promise[Nothing, Unit]) =
+          PushStream.unwrapScoped {
+            val scoped = ZIO.acquireRelease(Console.print("acquire outer"))(_ => Console.print("release outer").orDie) *>
+              ZIO.suspendSucceed(promise.succeed(()) *> ZIO.never) *>
+              ZIO.succeed(PushStream(1, 2, 3))
+            scoped
+          }
+        for {
+          promise <- Promise.make[Nothing, Unit]
+          fiber <- stream(promise).runDrain.fork
+          _ <- promise.await
+          _ <- fiber.interrupt
+          output <- TestConsole.output
+        } yield assertTrue(output == Vector("acquire outer", "release outer"))
+      }
     )
   )
 }

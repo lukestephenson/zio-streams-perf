@@ -16,8 +16,7 @@ import java.util.concurrent.atomic.AtomicReference
 object Adapters {
 
   def streamToPublisher[R, E <: Throwable, O](
-                                               stream: => ZStream[R, E, O]
-                                             )(implicit trace: Trace): ZIO[R, Nothing, Publisher[O]] =
+      stream: => ZStream[R, E, O])(implicit trace: Trace): ZIO[R, Nothing, Publisher[O]] =
     ZIO.runtime.map { runtime => subscriber =>
       if (subscriber == null) {
         throw new NullPointerException("Subscriber must not be null.")
@@ -38,40 +37,37 @@ object Adapters {
     }
 
   def subscriberToSink[E <: Throwable, I](
-                                           subscriber: => Subscriber[I]
-                                         )(implicit trace: Trace): ZIO[Scope, Nothing, (E => UIO[Unit], ZSink[Any, Nothing, I, I, Unit])] =
+      subscriber: => Subscriber[I])(implicit trace: Trace): ZIO[Scope, Nothing, (E => UIO[Unit], ZSink[Any, Nothing, I, I, Unit])] =
     unsafe { implicit unsafe =>
       val sub = subscriber
       for {
-        error       <- Promise.make[E, Nothing]
+        error <- Promise.make[E, Nothing]
         subscription = new DemandTrackingSubscription(sub)
-        _           <- ZIO.succeed(sub.onSubscribe(subscription))
-        fiber       <- error.await.interruptible.catchAll(t => ZIO.succeed(sub.onError(t))).forkScoped
+        _ <- ZIO.succeed(sub.onSubscribe(subscription))
+        fiber <- error.await.interruptible.catchAll(t => ZIO.succeed(sub.onError(t))).forkScoped
       } yield (error.fail(_) *> fiber.join, demandUnfoldSink(sub, subscription))
     }
 
   def publisherToStream[O](
-                            publisher: => Publisher[O],
-                            bufferSize: => Int
-                          )(implicit trace: Trace): ZStream[Any, Throwable, O] = {
+      publisher: => Publisher[O],
+      bufferSize: => Int)(implicit trace: Trace): ZStream[Any, Throwable, O] = {
 
     val pullOrFail =
       for {
-        subscriberP    <- makeSubscriber[O](bufferSize)
+        subscriberP <- makeSubscriber[O](bufferSize)
         (subscriber, p) = subscriberP
-        _              <- ZIO.acquireRelease(ZIO.succeed(publisher.subscribe(subscriber)))(_ => ZIO.succeed(subscriber.interrupt()))
-        subQ           <- p.await
-        (sub, q)        = subQ
-        process        <- process(sub, q, () => subscriber.await(), () => subscriber.isDone)
+        _ <- ZIO.acquireRelease(ZIO.succeed(publisher.subscribe(subscriber)))(_ => ZIO.succeed(subscriber.interrupt()))
+        subQ <- p.await
+        (sub, q) = subQ
+        process <- process(sub, q, () => subscriber.await(), () => subscriber.isDone)
       } yield process
     val pull = pullOrFail.catchAll(e => ZIO.succeed(Pull.fail(e)))
     fromPull[Any, Throwable, O](pull)
   }
 
   def publisherToPushStream[O](
-                            publisher: => Publisher[O],
-                            bufferSize: => Int
-                          )(implicit trace: Trace): ZStream[Any, Throwable, O] = {
+      publisher: => Publisher[O],
+      bufferSize: => Int)(implicit trace: Trace): ZStream[Any, Throwable, O] = {
 
     val pullOrFail =
       for {
@@ -87,42 +83,40 @@ object Adapters {
   }
 
   def sinkToSubscriber[R, I, L, Z](
-                                    sink: => ZSink[R, Throwable, I, L, Z],
-                                    bufferSize: => Int
-                                  )(implicit trace: Trace): ZIO[R with Scope, Throwable, (Subscriber[I], IO[Throwable, Z])] =
+      sink: => ZSink[R, Throwable, I, L, Z],
+      bufferSize: => Int)(implicit trace: Trace): ZIO[R with Scope, Throwable, (Subscriber[I], IO[Throwable, Z])] =
     for {
-      subscriberP    <- makeSubscriber[I](bufferSize)
+      subscriberP <- makeSubscriber[I](bufferSize)
       (subscriber, p) = subscriberP
       pull = p.await.flatMap { case (subscription, q) =>
-          process(subscription, q, () => subscriber.await(), () => subscriber.isDone, bufferSize)
-        }
+        process(subscription, q, () => subscriber.await(), () => subscriber.isDone, bufferSize)
+      }
         .catchAll(e => ZIO.succeedNow(Pull.fail(e)))
       fiber <- fromPull(pull).run(sink).forkScoped
     } yield (subscriber, fiber.join)
 
   private def process[A](
-                          sub: Subscription,
-                          q: RingBuffer[A],
-                          await: () => IO[Option[Throwable], Unit],
-                          isDone: () => Boolean,
-                          maxChunkSize: Int = Int.MaxValue
-                        ): ZIO[Scope, Nothing, ZIO[Any, Option[Throwable], Chunk[A]]] =
+      sub: Subscription,
+      q: RingBuffer[A],
+      await: () => IO[Option[Throwable], Unit],
+      isDone: () => Boolean,
+      maxChunkSize: Int = Int.MaxValue): ZIO[Scope, Nothing, ZIO[Any, Option[Throwable], Chunk[A]]] =
     for {
-      _            <- ZIO.succeed(sub.request(q.capacity.toLong))
+      _ <- ZIO.succeed(sub.request(q.capacity.toLong))
       requestedRef <- Ref.make(q.capacity.toLong) // TODO: maybe turn into unfold?
     } yield {
       def pull: Pull[Any, Throwable, A] =
         for {
           requested <- requestedRef.get
-          pollSize   = Math.min(requested, maxChunkSize.toLong).toInt
-          chunk     <- ZIO.succeed(q.pollUpTo(pollSize))
+          pollSize = Math.min(requested, maxChunkSize.toLong).toInt
+          chunk <- ZIO.succeed(q.pollUpTo(pollSize))
           r <-
             if (chunk.isEmpty)
               await() *> pull
             else
               (if (chunk.size == pollSize && !isDone())
-                ZIO.succeed(sub.request(q.capacity.toLong)) *> requestedRef.set(q.capacity.toLong)
-              else requestedRef.set(requested - chunk.size)) *>
+                 ZIO.succeed(sub.request(q.capacity.toLong)) *> requestedRef.set(q.capacity.toLong)
+               else requestedRef.set(requested - chunk.size)) *>
                 Pull.emit(chunk)
         } yield r
 
@@ -136,14 +130,13 @@ object Adapters {
   }
 
   private def makeSubscriber[A](
-                                 capacity: Int
-                               ): ZIO[
+      capacity: Int): ZIO[
     Scope,
     Nothing,
     (
-      InterruptibleSubscriber[A],
+        InterruptibleSubscriber[A],
         Promise[Throwable, (Subscription, RingBuffer[A])]
-      )
+    )
   ] =
     for {
       q <- ZIO.succeed(RingBuffer[A](capacity))
@@ -236,9 +229,8 @@ object Adapters {
     }
 
   private def demandUnfoldSink[I](
-                                   subscriber: Subscriber[I],
-                                   subscription: DemandTrackingSubscription
-                                 ): ZSink[Any, Nothing, I, I, Unit] =
+      subscriber: Subscriber[I],
+      subscription: DemandTrackingSubscription): ZSink[Any, Nothing, I, I, Unit] =
     ZSink
       .foldChunksZIO[Any, Nothing, I, Boolean](true)(identity) { (_, chunk) =>
         ZIO
@@ -259,16 +251,15 @@ object Adapters {
       .map(_ => if (!subscription.isCanceled) subscriber.onComplete())
 
   private class DemandTrackingSubscription(subscriber: Subscriber[_])(implicit val unsafe: Unsafe)
-    extends Subscription {
+      extends Subscription {
 
     private case class State(
-                              requestedCount: Long, // -1 when cancelled
-                              toNotify: Option[(Int, Promise[Unit, Int])]
-                            )
+        requestedCount: Long, // -1 when cancelled
+        toNotify: Option[(Int, Promise[Unit, Int])])
 
-    private val initial                                 = State(0L, None)
-    private val canceled                                = State(-1, None)
-    private def requested(n: Long)                      = State(n, None)
+    private val initial = State(0L, None)
+    private val canceled = State(-1, None)
+    private def requested(n: Long) = State(n, None)
     private def awaiting(n: Int, p: Promise[Unit, Int]) = State(0L, Some((n, p)))
 
     private val state = new AtomicReference(initial)
@@ -285,7 +276,7 @@ object Adapters {
           awaiting(n, p)
         case State(requestedCount, _) =>
           val newRequestedCount = Math.max(requestedCount - n, 0L)
-          val accepted          = Math.min(requestedCount, n.toLong).toInt
+          val accepted = Math.min(requestedCount, n.toLong).toInt
           result = ZIO.succeedNow(accepted)
           requested(newRequestedCount)
       }
@@ -302,11 +293,11 @@ object Adapters {
           canceled
         case State(requestedCount, Some((offered, toNotify))) =>
           val newRequestedCount = requestedCount + n
-          val accepted          = Math.min(offered.toLong, newRequestedCount)
-          val remaining         = newRequestedCount - accepted
+          val accepted = Math.min(offered.toLong, newRequestedCount)
+          val remaining = newRequestedCount - accepted
           notification = () => toNotify.unsafe.done(ZIO.succeedNow(accepted.toInt))
           requested(remaining)
-        case State(requestedCount, _) if ((Long.MaxValue - n) > requestedCount) =>
+        case State(requestedCount, _) if (Long.MaxValue - n) > requestedCount =>
           requested(requestedCount + n)
         case _ =>
           requested(Long.MaxValue)
@@ -318,16 +309,13 @@ object Adapters {
       state.getAndSet(canceled).toNotify.foreach { case (_, p) => p.unsafe.done(ZIO.fail(())) }
   }
 
-  private def fromPull[R, E, A](zio: ZIO[R with Scope, Nothing, ZIO[R, Option[E], Chunk[A]]])(implicit
-                                                                                              trace: Trace
-  ): ZStream[R, E, A] = {
+  private def fromPull[R, E, A](zio: ZIO[R with Scope, Nothing, ZIO[R, Option[E], Chunk[A]]])(implicit trace: Trace): ZStream[R, E, A] = {
     val x: ZIO[R with Scope, Nothing, ZStream[R, E, A]] = zio.map(pull => ZStream.repeatZIOChunkOption(pull))
     ZStream.unwrapScoped[R](x)
   }
 
   private def fromPullToPushStream[R, E, A](zio: ZIO[R with Scope, Nothing, ZIO[R, Option[E], Chunk[A]]])(implicit
-                                                                                              trace: Trace
-  ): PushStream[R, E, Chunk[A]] = {
+      trace: Trace): PushStream[R, E, Chunk[A]] = {
     val x: ZIO[R with Scope, Nothing, PushStream[R, E, Chunk[A]]] = zio.map(pull => PushStream.repeatZIOOption(pull))
     PushStream.unwrapScoped(x)
   }
