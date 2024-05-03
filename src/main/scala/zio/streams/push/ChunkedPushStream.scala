@@ -1,7 +1,7 @@
 package zio.streams.push
 
 import zio.streams.push.internal.Ack.Stop
-import zio.streams.push.internal.{Observer, Observers, SourcePushStream}
+import zio.streams.push.internal.{Observer, Observers, ScanZioChunkedPushStream, SourcePushStream}
 import zio.{Chunk, URIO, ZIO}
 
 type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]
@@ -39,6 +39,14 @@ object ChunkedPushStream {
 
     def mapConcatChunks[A2](f: A => Chunk[A2]): ChunkedPushStream[R, E, A2] = {
       stream.map(chunkA => chunkA.flatMap(a => f(a)))
+    }
+
+    def mapConcatChunksIterable[A2](f: A => Iterable[A2]): ChunkedPushStream[R, E, A2] = {
+      stream.map(iterableA => Chunk.fromIterable(iterableA.flatMap(a => f(a))))
+    }
+
+    def scanZIOChunks[S](s: => S)(f: (S, A) => ZIO[R, E, S]): ChunkedPushStream[R, E, S] = {
+      new ScanZioChunkedPushStream(stream, s, f)
     }
   }
 }

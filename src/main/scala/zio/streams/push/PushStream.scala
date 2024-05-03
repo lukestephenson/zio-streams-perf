@@ -23,6 +23,14 @@ trait PushStream[-R, +E, +A] { self =>
     new ScanZioPushStream(self, s, f)
   }
 
+  /**
+   * Threads the stream through the transformation function `f`.
+   */
+  def viaFunction[R2, E2, B](f: PushStream[R, E, A] => PushStream[R2, E2, B])(implicit
+                                                                              trace: Trace
+  ): PushStream[R2, E2, B] =
+    f(self)
+    
   def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
 
   def runCollect: ZIO[R, E, Chunk[A]] = runFold(Chunk.empty[A])((chunk, t) => chunk.appended(t))
