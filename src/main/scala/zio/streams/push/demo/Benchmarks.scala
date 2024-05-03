@@ -8,6 +8,8 @@ import zio.stream.ZStream
 import zio.streams.push.ChunkedPushStream.*
 import zio.streams.push.{ChunkedPushStream, PushStream}
 import monix.execution.Scheduler.Implicits.global
+import kyo.KyoApp
+import kyo.Streams
 
 import java.util.concurrent.TimeUnit
 
@@ -29,45 +31,57 @@ class Benchmarks {
   private[this] def runZIO[A](io: zio.ZIO[Any, Throwable, A]): A =
     zio.Unsafe.unsafe(implicit u => zioRuntime.unsafe.run(zio.ZIO.yieldNow.flatMap(_ => io)).getOrThrow())
 
-//  @Benchmark
-//  def zStreamFoldChunk1() = {
-//    runZIO(ZStream.range(0, 1_000_000, 1).runFold(0)(_ + _))
-//  }
-//
+  @Benchmark
+  def kyoStreamFold() = {
+    val seq = (0 to 1_000_000)
+    KyoApp.run(Streams.initSeq(seq).runFold(0)(_ + _))
+  }
+
+  @Benchmark
+  def zStreamFoldChunk1() = {
+    runZIO(ZStream.range(0, 1_000_000, 1).runFold(0)(_ + _))
+  }
+
 //  @Benchmark
 //  def zStreamFoldChunk100() = {
 //    runZIO(ZStream.range(0, 1_000_000, 100).runFold(0)(_ + _))
 //  }
-//
-//  @Benchmark
-//  def pStreamFold() = {
-//    runZIO(PushStream.range(0, 1_000_000).runFold(0)(_ + _))
-//  }
-//
-//  @Benchmark
-//  def pStreamFoldChunk100() = {
-//    runZIO(ChunkedPushStream.range(0, 1_000_000, 100).runFold(0)(_ + _.sum))
-//  }
-//
-//  @Benchmark
-//  def zStreamMapChunk1() = {
-//    runZIO(ZStream.range(0, 1_000_000, 1).map(_ * 2).runFold(0)(_ + _))
-//  }
-//
-//  @Benchmark
-//  def zStreamMapChunk100() = {
-//    runZIO(ZStream.range(0, 1_000_000, 100).map(_ * 2).runFold(0)(_ + _))
-//  }
-//
-//  @Benchmark
-//  def pStreamMap() = {
-//    runZIO(PushStream.range(0, 1_000_000).map(_ * 2).runFold(0)(_ + _))
-//  }
-//
-//  @Benchmark
-//  def pStreamMapChunk100() = {
-//    runZIO(ChunkedPushStream.range(0, 1_000_000, 100).mapChunks(_ * 2).runFold(0)(_ + _.sum))
-//  }
+
+  @Benchmark
+  def pStreamFold() = {
+    runZIO(PushStream.range(0, 1_000_000).runFold(0)(_ + _))
+  }
+
+  @Benchmark
+  def pStreamFoldChunk100() = {
+    runZIO(ChunkedPushStream.range(0, 1_000_000, 100).runFold(0)(_ + _.sum))
+  }
+
+  @Benchmark
+  def zStreamMapChunk1() = {
+    runZIO(ZStream.range(0, 1_000_000, 1).map(_ * 2).runFold(0)(_ + _))
+  }
+
+  @Benchmark
+  def zStreamMapChunk100() = {
+    runZIO(ZStream.range(0, 1_000_000, 100).map(_ * 2).runFold(0)(_ + _))
+  }
+
+  @Benchmark
+  def pStreamMap() = {
+    runZIO(PushStream.range(0, 1_000_000).map(_ * 2).runFold(0)(_ + _))
+  }
+
+  @Benchmark
+  def pStreamMapChunk100() = {
+    runZIO(ChunkedPushStream.range(0, 1_000_000, 100).mapChunks(_ * 2).runFold(0)(_ + _.sum))
+  }
+
+  @Benchmark
+  def kyoStreamMap() = {
+    val seq = (0 to 1_000_000)
+    KyoApp.run(Streams.initSeq(seq).transform(_ * 2).runFold(0)(_ + _))
+  }
 //
 //  @Benchmark
 //  def zStreamMapZioChunk1() = {
@@ -113,11 +127,11 @@ class Benchmarks {
 //    runZIO(ZStream.range(0, 100_000, 100).mapZIOPar(4)(i => ZIO.succeed(i * 2)).rechunk(100).runFold(0)(_ + _))
 //  }
 //
-  @Benchmark
-  @OperationsPerInvocation(100_000)
-  def pStreamMapZioPar() = {
-    runZIO(PushStream.range(0, 100_000).mapZIOPar(4)(i => ZIO.succeed(i * 2)).runFold(0)(_ + _))
-  }
+//  @Benchmark
+//  @OperationsPerInvocation(100_000)
+//  def pStreamMapZioPar() = {
+//    runZIO(PushStream.range(0, 100_000).mapZIOPar(4)(i => ZIO.succeed(i * 2)).runFold(0)(_ + _))
+//  }
 //
 //  @Benchmark
 //  @OperationsPerInvocation(100_000)
