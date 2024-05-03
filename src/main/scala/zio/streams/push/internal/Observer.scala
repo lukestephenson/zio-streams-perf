@@ -1,14 +1,13 @@
 package zio.streams.push.internal
 
-import zio.{UIO, ZIO}
+import zio.{UIO, URIO, ZIO}
 
 trait Observer[R, E, -T] {
-  def onNext(elem: T): ZIO[R, E, Ack]
+  def onNext(elem: T): URIO[R, Ack]
 
-  // TODO remove E from the result type here. Confusing that errors go in two directions
-  def onError(e: E): ZIO[R, E, Unit]
+  def onError(e: E): URIO[R, Unit]
 
-  def onComplete(): ZIO[R, E, Unit]
+  def onComplete(): URIO[R, Unit]
 }
 
 sealed abstract class Ack {}

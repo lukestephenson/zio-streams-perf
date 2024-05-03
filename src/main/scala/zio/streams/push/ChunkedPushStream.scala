@@ -2,19 +2,19 @@ package zio.streams.push
 
 import zio.streams.push.internal.Ack.Stop
 import zio.streams.push.internal.{Observer, Observers, SourcePushStream}
-import zio.{Chunk, ZIO}
+import zio.{Chunk, URIO, ZIO}
 
 type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]
 
 object ChunkedPushStream {
 
   def range(start: Int, end: Int, chunkSize: Int): ChunkedPushStream[Any, Nothing, Int] = {
-    new SourcePushStream[Chunk[Int]] {
+    new SourcePushStream[Any, Nothing, Chunk[Int]] {
       override def startSource[OutR2 <: Any, OutE2 >: Nothing](observer: Observer[OutR2, OutE2, Chunk[Int]]): ZIO[OutR2, OutE2, Unit] = {
         loop(start, observer)
       }
 
-      private def loop[R, E](next: Int, observer: Observer[R, E, Chunk[Int]]): ZIO[R, E, Unit] = {
+      private def loop[R, E](next: Int, observer: Observer[R, E, Chunk[Int]]): URIO[R, Unit] = {
         when(next < end) {
           val max = Math.min(next + chunkSize, end)
           Observers.emitOne(observer, Chunk.fromArray(Array.range(next, max)), loop(max, observer))

@@ -1,35 +1,32 @@
 package zio.streams.push
 
-import zio.test.*
-import zio.test.Assertion.*
+import zio.test._
+import zio.test.Assertion._
 import zio.test.TestAspect.nonFlaky
-import zio.{Chunk, Promise, Queue, Ref, ZIO, durationInt}
+import zio.{Chunk, Clock, Promise, Queue, Ref, Schedule, Scope, ZIO, durationInt}
+import zio._
+
+import java.util.concurrent.TimeUnit
 
 object PushStreamSpec extends ZIOSpecDefault {
 
+  def pureStreamGen[R, A](a: Gen[R, A], max: Int): Gen[R, PushStream[Any, Nothing, A]] =
+    max match {
+      case 0 => Gen.const(PushStream.empty)
+      case n =>
+        Gen.oneOf(
+          Gen.const(PushStream.empty),
+          Gen
+            .int(1, n)
+            .flatMap(Gen.listOfN(_)(a))
+            .map(elements => PushStream.fromIterable(elements))
+        )
+    }
+
+  val pureStreamOfInts: Gen[Any, PushStream[Any, Nothing, Int]] =
+    Gen.bounded(0, 5)(pureStreamGen(Gen.int, _)) //.zipWith(Gen.function(Gen.boolean))(injectEmptyChunks)
+
   override def spec = suite("PushStreamSpec")(
-    suite("range")(
-      test("range includes min value and excludes max value") {
-        assertZIO(
-          PushStream.range(1, 2).runCollect
-        )(equalTo(Chunk(1)))
-      },
-      test("two large ranges can be concatenated") {
-        assertZIO(
-          (PushStream.range(1, 1000) ++ PushStream.range(1000, 2000)).runCollect
-        )(equalTo(Chunk.fromIterable(Range(1, 2000))))
-      },
-      test("two small ranges can be concatenated") {
-        assertZIO(
-          (PushStream.range(1, 10) ++ PushStream.range(10, 20)).runCollect
-        )(equalTo(Chunk.fromIterable(Range(1, 20))))
-      },
-      test("range emits no values when start >= end") {
-        assertZIO(
-          (PushStream.range(1, 1) ++ PushStream.range(2, 1)).runCollect
-        )(equalTo(Chunk.empty))
-      }
-    ),
     suite("mapZIO")(
       test("ZIO#foreach equivalence") {
         check(Gen.small(Gen.listOfN(_)(Gen.byte)), Gen.function(Gen.successes(Gen.byte))) { (data, f) =>
@@ -135,6 +132,121 @@ object PushStreamSpec extends ZIOSpecDefault {
           exit <- fiber.await
         } yield assert(exit)(fails(hasMessage(equalTo("Boom"))))
       }
+    ),
+    suite("scan")(
+      test("scan")(check(pureStreamOfInts) { s =>
+        for {
+          streamResult <- s.scan(0)(_ + _).runCollect
+          chunkResult  <- s.runCollect.map(_.scan(0)(_ + _))
+        } yield assert(streamResult)(equalTo(chunkResult))
+      })
+    ),
+    suite("schedule")(
+      test("schedule") {
+        for {
+          start <- Clock.currentTime(TimeUnit.MILLISECONDS)
+          fiber <- PushStream
+            .range(1, 9)
+            .schedule(Schedule.fixed(100.milliseconds))
+            .mapZIO(n => Clock.currentTime(TimeUnit.MILLISECONDS).map(now => (n, now - start)))
+            .runCollect
+            .fork
+          _       <- TestClock.adjust(800.millis)
+          actual  <- fiber.join
+          expected = Chunk((1, 100L), (2, 200L), (3, 300L), (4, 400L), (5, 500L), (6, 600L), (7, 700L), (8, 800L))
+        } yield assertTrue(actual == expected)
+      },
+      test("scheduleWith")(
+        assertZIO(
+          PushStream("A", "B", "C", "A", "B", "C")
+            .scheduleWith(Schedule.recurs(2) *> Schedule.fromFunction((_) => "Done"))(
+              _.toLowerCase,
+              identity
+            )
+            .runCollect
+        )(equalTo(Chunk("a", "Done", "b", "Done"))) // Note this differs to ZStream assertion
+      ),
+      test("scheduleEither")(
+        assertZIO(
+          PushStream("A", "B", "C")
+            .scheduleEither(Schedule.recurs(2) *> Schedule.fromFunction((_) => "!"))
+            .runCollect
+        )(equalTo(Chunk(Right("A"), Left("!"), Right("B"), Left("!")))) // Note this differs to ZStream assertion
+      )
+    ),
+    suite("repeatEffectOption")(
+      test("emit elements")(
+        assertZIO(
+          PushStream
+            .repeatZIOOption(ZIO.succeed(1))
+            .take(2)
+            .runCollect
+        )(equalTo(Chunk(1, 1)))
+      ),
+      test("emit elements until pull fails with None")(
+        for {
+          ref <- Ref.make(0)
+          fa = for {
+            newCount <- ref.updateAndGet(_ + 1)
+            res      <- if (newCount >= 5) ZIO.fail(None) else ZIO.succeed(newCount)
+          } yield res
+          res <- PushStream
+            .repeatZIOOption(fa)
+            .take(10)
+            .runCollect
+        } yield assert(res)(equalTo(Chunk(1, 2, 3, 4)))
+      ),
+//      test("stops evaluating the effect once it fails with None") {
+//        for {
+//          ref <- Ref.make(0)
+//          _ <- ZIO.scoped {
+//            PushStream.repeatZIOOption(ref.updateAndGet(_ + 1) *> ZIO.fail(None)).toPull.flatMap { pull =>
+//              pull.ignore *> pull.ignore
+//            }
+//          }
+//          result <- ref.get
+//        } yield assert(result)(equalTo(1))
+//      }
+    ),
+    suite("Constructors")(
+      suite("range")(
+        test("range includes min value and excludes max value") {
+          assertZIO(
+            PushStream.range(1, 2).runCollect
+          )(equalTo(Chunk(1)))
+        },
+        test("two large ranges can be concatenated") {
+          assertZIO(
+            (PushStream.range(1, 1000) ++ PushStream.range(1000, 2000)).runCollect
+          )(equalTo(Chunk.fromIterable(Range(1, 2000))))
+        },
+        test("two small ranges can be concatenated") {
+          assertZIO(
+            (PushStream.range(1, 10) ++ PushStream.range(10, 20)).runCollect
+          )(equalTo(Chunk.fromIterable(Range(1, 20))))
+        },
+        test("range emits no values when start >= end") {
+          assertZIO(
+            (PushStream.range(1, 1) ++ PushStream.range(2, 1)).runCollect
+          )(equalTo(Chunk.empty))
+        }
+      ),
+    test("unwrapScoped") {
+      def stream(promise: Promise[Nothing, Unit]) =
+        PushStream.unwrapScoped {
+          val scoped = ZIO.acquireRelease(Console.print("acquire outer"))(_ => Console.print("release outer").orDie) *>
+            ZIO.suspendSucceed(promise.succeed(()) *> ZIO.never) *>
+            ZIO.succeed(PushStream(1, 2, 3))
+          scoped
+        }
+      for {
+        promise <- Promise.make[Nothing, Unit]
+        fiber   <- stream(promise).runDrain.fork
+        _       <- promise.await
+        _       <- fiber.interrupt
+        output  <- TestConsole.output
+      } yield assertTrue(output == Vector("acquire outer", "release outer"))
+    }
     )
   )
 }
