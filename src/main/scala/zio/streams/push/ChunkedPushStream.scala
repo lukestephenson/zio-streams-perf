@@ -1,12 +1,17 @@
 package zio.streams.push
 
+import zio.streams.push.PushStream.repeatZIOOption
 import zio.streams.push.internal.Ack.Stop
 import zio.streams.push.internal.{Observer, Observers, ScanZioChunkedPushStream, SourcePushStream}
-import zio.{Chunk, URIO, ZIO}
+import zio.{Chunk, Dequeue, Trace, URIO, ZIO}
 
 type ChunkedPushStream[R, E, A] = PushStream[R, E, Chunk[A]]
 
 object ChunkedPushStream {
+
+  /** The default chunk size used by the various combinators and constructors of [[ZStream]].
+    */
+  final val DefaultChunkSize = 4096
 
   def range(start: Int, end: Int, chunkSize: Int): ChunkedPushStream[Any, Nothing, Int] = {
     new SourcePushStream[Any, Nothing, Chunk[Int]] {
@@ -22,6 +27,35 @@ object ChunkedPushStream {
       }
     }
   }
+
+  /** Creates a stream from a queue of values. The queue will be shutdown once the stream is closed.
+    *
+    * @param maxChunkSize
+    *   Maximum number of queued elements to put in one chunk in the stream
+    */
+  def fromQueueWithShutdown[O](
+      queue: => Dequeue[O],
+      maxChunkSize: => Int = DefaultChunkSize)(implicit trace: Trace): ChunkedPushStream[Any, Nothing, O] =
+    fromQueue(queue, maxChunkSize) // TODO add queue shutdown .ensuring(queue.shutdown)
+
+  /** Creates a stream from a queue of values
+    *
+    * @param maxChunkSize
+    *   Maximum number of queued elements to put in one chunk in the stream
+    */
+  def fromQueue[O](
+      queue: => Dequeue[O],
+      maxChunkSize: => Int = DefaultChunkSize)(implicit trace: Trace): ChunkedPushStream[Any, Nothing, O] =
+    repeatZIOOption {
+      queue
+        .takeBetween(1, maxChunkSize)
+        .catchAllCause(c =>
+          queue.isShutdown.flatMap { down =>
+            if (down && c.isInterrupted) ZIO.fail(None) // Pull.end
+            else ??? // TODO Pull.failCause(c)
+          }
+        )
+    }
 
   extension [R, E, A](stream: ChunkedPushStream[R, E, A]) {
 
