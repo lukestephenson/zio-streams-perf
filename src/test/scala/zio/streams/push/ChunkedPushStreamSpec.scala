@@ -4,7 +4,7 @@ import zio.streams.push.ChunkedPushStream.*
 import zio.streams.push.PushStreamSpec.{suite, test}
 import zio.test.*
 import zio.test.Assertion.*
-import zio.{Chunk, ZIO}
+import zio.{Chunk, Queue, ZIO}
 
 object ChunkedPushStreamSpec extends ZIOSpecDefault {
 
@@ -37,6 +37,35 @@ object ChunkedPushStreamSpec extends ZIOSpecDefault {
             .map(c => c.sum)
             .runCollect
         )(equalTo(Chunk(1 + 2, 3 + 4, 5 + 6, 7 + 8, 9)))
+      }
+    ),
+    suite("fromQueue")(
+//      test("emits queued elements") {
+//        assertWithChunkCoordination(List(Chunk(1, 2))) { c =>
+//          assertZIO(for {
+//            fiber <- ChunkedPushStream
+//              .fromQueue(c.queue)
+//              .collectWhileSuccess
+//              .flattenChunks
+//              .tap(_ => c.proceed)
+//              .runCollect
+//              .fork
+//            _      <- c.offer
+//            result <- fiber.join
+//          } yield result)(equalTo(Chunk(1, 2)))
+//        }
+//      },
+      test("chunks up to the max chunk size") {
+        assertZIO(for {
+          queue <- Queue.unbounded[Int]
+          _ <- queue.offerAll(List(1, 2, 3, 4, 5, 6, 7))
+
+          result <- ChunkedPushStream
+            .fromQueue(queue, maxChunkSize = 2)
+            .mapChunks(Chunk.single)
+            .take(3)
+            .runCollect
+        } yield result)(forall(hasSize(isLessThanEqualTo(2))))
       }
     )
   )

@@ -1,5 +1,8 @@
 package zio.streams.push
 
+import zio.Dequeue
+import zio.stream.ZStream
+import zio.stream.ZStream.{scoped, unfoldChunkZIO}
 import zio.streams.push.internal.*
 import zio.streams.push.internal.Ack.{Continue, Stop}
 import zio.streams.push.internal.operators.*
@@ -28,9 +31,21 @@ trait PushStream[-R, +E, +A] { self =>
   def viaFunction[R2, E2, B](f: PushStream[R, E, A] => PushStream[R2, E2, B])(implicit trace: Trace): PushStream[R2, E2, B] =
     f(self)
 
-  def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
+  def take(elements: Int): PushStream[R, E, A] = {
+    if (elements <= 0) PushStream.empty
+    else new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
+  }
+
+  /** Adds an effect to consumption of every element of the stream.
+    */
+  def tap[R1 <: R, E1 >: E](f: A => ZIO[R1, E1, Any])(implicit trace: Trace): PushStream[R1, E1, A] =
+    mapZIO(a => f(a).as(a))
 
   def runCollect: ZIO[R, E, Chunk[A]] = runFold(Chunk.empty[A])((chunk, t) => chunk.appended(t))
+
+  /** Runs the stream only for its effects. The emitted elements are discarded.
+    */
+  def runDrain(implicit trace: Trace): ZIO[R, E, Unit] = runCollect.unit
 
   def mapConcat[A2](f: A => Iterable[A2]): PushStream[R, E, A2] = new LiftByOperatorPushStream(this, new MapConcatOperator[R, E, A, A2](f))
 
@@ -59,6 +74,16 @@ trait PushStream[-R, +E, +A] { self =>
     new LiftByOperatorPushStream(this, new ScheduleOperator[A, R1, E1, B, C](schedule, f, g))
   }
 
+  def buffer(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
+    val queueDef: ZIO[Any with Scope, Nothing, Queue[A]] =
+      ZIO.acquireRelease(Queue.bounded[A](capacity))(_.shutdown)
+
+    val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
+      queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
+
+    PushStream.unwrapScoped(x)
+  }
+
   def bufferSliding(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
     val queueDef: ZIO[Any with Scope, Nothing, Queue[A]] =
       ZIO.acquireRelease(Queue.sliding[A](capacity))(_.shutdown)
@@ -84,17 +109,82 @@ trait PushStream[-R, +E, +A] { self =>
     }
   }
 
+  def flatMap[R1 <: R, E1 >: E, B](f: A => PushStream[R1, E1, B])(implicit trace: Trace): PushStream[R1, E1, B] = {
+    new PushStream[R1, E1, B] {
+      override def subscribe[OutR2 <: R1, OutE2 >: E1](observer: Observer[OutR2, OutE2, B]): URIO[OutR2, Unit] = {
+        // ZIO.suspendSucceed is used to make flatMap stack safe
+        ZIO.suspendSucceed(
+          self.subscribe(new DefaultObserver[OutR2, OutE2, A](observer) {
+            override def onNext(elem: A): URIO[OutR2, Ack] = {
+              var lastAck: Ack = Ack.Continue
+              val newStream: PushStream[R1, E1, B] = f(elem)
+              newStream.subscribe(new Observer[OutR2, OutE2, B] {
+                override def onNext(innerElem: B): URIO[OutR2, Ack] = {
+                  // TODO -- if downstream requests a stop here, signal that back up.
+                  observer.onNext(innerElem).tap { ack =>
+                    ZIO.succeed {
+                      lastAck = ack
+                    }
+                  }
+                }
+
+                override def onError(e: OutE2): URIO[OutR2, Unit] = {
+                  lastAck = Ack.Stop
+                  observer.onError(e)
+                }
+
+                override def onComplete(): URIO[OutR2, Unit] = ZIO.unit // ignore completion of intermediate
+              }).flatMap { _ =>
+                // TODO like the take operator, this would benefit from the subscribe method returning the last ack
+                ZIO.succeed(lastAck)
+              }
+            }
+          })
+        )
+      }
+    }
+  }
+
+  /** Flattens this stream-of-streams into a stream made of the concatenation in strict order of all the streams.
+    */
+  def flatten[R1 <: R, E1 >: E, A1](implicit ev: A <:< PushStream[R1, E1, A1], trace: Trace): PushStream[R1, E1, A1] =
+    flatMap(ev(_))
+
   def concat[R1 <: R, E1 >: E, A1 >: A](that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] = {
     new PushStream[R1, E1, A1] {
       override def subscribe[OutR2 <: R1, OutE2 >: E1](observer: Observer[OutR2, OutE2, A1]): URIO[OutR2, Unit] = {
         self.subscribe(new DefaultObserver[OutR2, OutE2, A1](observer) {
-          override def onNext(elem: A1): URIO[OutR2, Ack] = observer.onNext(elem)
+          var lastAck: Ack = Ack.Continue
+          override def onNext(elem: A1): URIO[OutR2, Ack] = observer.onNext(elem).tap(ack => ZIO.succeed { lastAck = ack })
 
-          override def onComplete(): URIO[OutR2, Unit] = that.subscribe(observer)
+          override def onComplete(): URIO[OutR2, Unit] = {
+            // TODO A potential alternative is to have the onNext method return the
+            if (lastAck == Ack.Continue)
+              that.subscribe(observer)
+            else ZIO.unit // if downstream said nothing else please, then don't start subscribing to something else
+          }
         })
       }
     }
   }
+
+  /** Composes this stream with the specified stream to create a cartesian product of elements, but keeps only elements from the other
+    * stream. The `that` stream would be run multiple times, for every element in the `this` stream.
+    *
+    * See also [[ZStream#zip]] and [[ZStream#<&>]] for the more common point-wise variant.
+    */
+  def crossRight[R1 <: R, E1 >: E, B](that: => PushStream[R1, E1, B])(implicit trace: Trace): PushStream[R1, E1, B] =
+    self.flatMap(_ => that)
+
+  /** Symbolic alias for [[ZStream#crossRight]].
+    */
+  def *>[R1 <: R, E1 >: E, A2](that: => PushStream[R1, E1, A2])(implicit trace: Trace): PushStream[R1, E1, A2] =
+    self.crossRight(that)
+
+  /** Executes the provided finalizer after this stream's finalizers run.
+    */
+  def ensuring[R1 <: R](fin: => ZIO[R1, Nothing, Any])(implicit trace: Trace): PushStream[R1, E, A] =
+    PushStream.acquireReleaseWith(ZIO.succeed(self))(_ => fin).flatten
 
   def runFold[B](z: B)(f: (B, A) => B): ZIO[R, E, B] = {
     Promise.make[E, B].flatMap { completion =>
@@ -122,10 +212,6 @@ trait PushStream[-R, +E, +A] { self =>
     }
   }
 
-  def runDrain(implicit trace: Trace): ZIO[R, E, Unit] = {
-    // TODO find a common abstraction here
-    runFold(())((_, _) => ()).unit
-  }
 }
 
 object PushStream {
@@ -136,6 +222,10 @@ object PushStream {
 
   def apply[T](elems: T*): PushStream[Any, Nothing, T] = {
     fromIterable(elems)
+  }
+
+  def succeed[T](elem: T): PushStream[Any, Nothing, T] = {
+    apply(elem)
   }
 
   def empty[T]: PushStream[Any, Nothing, T] = fromIterable(Iterable.empty)
@@ -149,6 +239,11 @@ object PushStream {
         fa.foldZIO(observer.onError, observer.onNext).unit
       }
     }
+
+  /** The stream that never produces any value or fails with any error.
+    */
+  def never(implicit trace: Trace): PushStream[Any, Nothing, Nothing] =
+    PushStream.fromZIO(ZIO.never)
 
   def unwrapScoped[R, E, A](f: => ZIO[R with Scope, E, PushStream[R, E, A]])(implicit trace: Trace): PushStream[R, E, A] = {
     new PushStream[R, E, A] {
@@ -258,4 +353,25 @@ object PushStream {
       }
     }
   }
+
+  /** Creates a stream from a single value that will get cleaned up after the stream is consumed
+    */
+  def acquireReleaseWith[R, E, A](acquire: => ZIO[R, E, A])(release: A => URIO[R, Any])(implicit trace: Trace): PushStream[R, E, A] = {
+    val scopedStream: ZIO[R with Scope, E, PushStream[Any, Nothing, A]] = ZIO.acquireRelease(acquire)(release).map(a => PushStream(a))
+    unwrapScoped(scopedStream)
+  }
+
+  //  /**
+//   * Creates a stream from an effect producing chunks of `A` values until it
+//   * fails with None.
+//   */
+//  def repeatZIOChunkOption[R, E, A](
+//                                     fa: => ZIO[R, Option[E], Chunk[A]]
+//                                   )(implicit trace: Trace): ZStream[R, E, A] =
+//    unfoldChunkZIO(fa)(fa =>
+//      fa.map(chunk => Some((chunk, fa))).catchAll {
+//        case None    => ZIO.none
+//        case Some(e) => ZIO.fail(e)
+//      }
+//    )
 }
