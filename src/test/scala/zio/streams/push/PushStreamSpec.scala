@@ -232,7 +232,7 @@ object PushStreamSpec extends ZIOSpecDefault with GenZIO {
 //        } yield assert(result)(equalTo(1))
 //      }
     ),
-//    suite("take")(
+    suite("take")(
 //      test("take")(check(streamOfInts, Gen.int) { (s, n) =>
 //        for {
 //          takeStreamResult <- s.take(n).runCollect.exit
@@ -249,17 +249,17 @@ object PushStreamSpec extends ZIOSpecDefault with GenZIO {
 //          result <- ran.get
 //        } yield assert(result)(isFalse)
 //      ),
-//      test("take(0) short circuits")(
-//        for {
-//          units <- PushStream.never.take(0).runCollect
-//        } yield assert(units)(equalTo(Chunk.empty))
-//      ),
-//      test("take(1) short circuits")(
-//        for {
-//          ints <- (PushStream(1) ++ PushStream.never).take(1).runCollect
-//        } yield assert(ints)(equalTo(Chunk(1)))
-//      )
-//    ),
+      test("take(0) short circuits")(
+        for {
+          units <- PushStream.never.take(0).runCollect
+        } yield assert(units)(equalTo(Chunk.empty))
+      ) @@ TestAspect.timeout(1.second),
+      test("take(1) short circuits")(
+        for {
+          ints <- (PushStream(1) ++ PushStream.never).take(1).runCollect
+        } yield assert(ints)(equalTo(Chunk(1)))
+      ) // @@ TestAspect.timeout(1.second)
+    ),
     suite("Constructors")(
       suite("range")(
         test("range includes min value and excludes max value") {

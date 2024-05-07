@@ -31,7 +31,10 @@ trait PushStream[-R, +E, +A] { self =>
   def viaFunction[R2, E2, B](f: PushStream[R, E, A] => PushStream[R2, E2, B])(implicit trace: Trace): PushStream[R2, E2, B] =
     f(self)
 
-  def take(elements: Int): PushStream[R, E, A] = new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
+  def take(elements: Int): PushStream[R, E, A] = {
+    if (elements <= 0) PushStream.empty
+    else new LiftByOperatorPushStream(this, new TakeOperator[R, E, A](elements))
+  }
 
   /** Adds an effect to consumption of every element of the stream.
     */
@@ -113,15 +116,12 @@ trait PushStream[-R, +E, +A] { self =>
         ZIO.suspendSucceed(
           self.subscribe(new DefaultObserver[OutR2, OutE2, A](observer) {
             override def onNext(elem: A): URIO[OutR2, Ack] = {
-              println(s"flatMap got $elem")
               var lastAck: Ack = Ack.Continue
               val newStream: PushStream[R1, E1, B] = f(elem)
               newStream.subscribe(new Observer[OutR2, OutE2, B] {
                 override def onNext(innerElem: B): URIO[OutR2, Ack] = {
-                  println(s"within flatmap got $innerElem")
                   // TODO -- if downstream requests a stop here, signal that back up.
                   observer.onNext(innerElem).tap { ack =>
-                    println(s"within flatmap got $innerElem - $ack")
                     ZIO.succeed {
                       lastAck = ack
                     }
@@ -135,12 +135,10 @@ trait PushStream[-R, +E, +A] { self =>
 
                 override def onComplete(): URIO[OutR2, Unit] = ZIO.unit // ignore completion of intermediate
               }).flatMap { _ =>
-                println("flatMap completed")
+                // TODO like the take operator, this would benefit from the subscribe method returning the last ack
                 ZIO.succeed(lastAck)
               }
             }
-
-            override def onComplete(): URIO[OutR2, Unit] = observer.onComplete()
           })
         )
       }
@@ -156,9 +154,15 @@ trait PushStream[-R, +E, +A] { self =>
     new PushStream[R1, E1, A1] {
       override def subscribe[OutR2 <: R1, OutE2 >: E1](observer: Observer[OutR2, OutE2, A1]): URIO[OutR2, Unit] = {
         self.subscribe(new DefaultObserver[OutR2, OutE2, A1](observer) {
-          override def onNext(elem: A1): URIO[OutR2, Ack] = observer.onNext(elem)
+          var lastAck: Ack = Ack.Continue
+          override def onNext(elem: A1): URIO[OutR2, Ack] = observer.onNext(elem).tap(ack => ZIO.succeed { lastAck = ack })
 
-          override def onComplete(): URIO[OutR2, Unit] = that.subscribe(observer)
+          override def onComplete(): URIO[OutR2, Unit] = {
+            // TODO A potential alternative is to have the onNext method return the
+            if (lastAck == Ack.Continue)
+              that.subscribe(observer)
+            else ZIO.unit // if downstream said nothing else please, then don't start subscribing to something else
+          }
         })
       }
     }
