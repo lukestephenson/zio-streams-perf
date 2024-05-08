@@ -275,45 +275,6 @@ object PushStream {
     }
   }
 
-//  def unwrapScoped2[R, E, A](f: => ZIO[R with Scope, E, PushStream[R, E, A]])(implicit trace: Trace): PushStream[R, E, A] = {
-//    new PushStream[R, E, A] {
-//      override def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, Int]): URIO[OutR2, Unit] = {
-//        zio.Console.printLine(s"inside subscribe").ignore *>
-//          Scope.make.flatMap { scope =>
-//            scope.extend(f).flatMap { downstream =>
-//              zio.Console.printLine(s"got the downstream").ignore *>
-//                downstream.subscribe(observer).onExit(exit => zio.Console.printLine(s"downstream emitted elements, we can close the scope").ignore *> scope.close(exit)).unit
-//            }
-//          }
-//      }
-//    }
-//  }
-//  def foo(): UIO[Unit] = {
-//    import zio.durationInt
-//
-//    def streamGen(i: Int): PushStream[Any, Nothing, Int] =
-//      PushStream.range(1,5).mapZIO(i => zio.Console.printLine(s"hello $i").ignore.delay(1.second).as(i))
-//
-//    val scoped: ZIO[Any with Scope, Nothing, PushStream[Any, Nothing, Int]] = ZIO.acquireRelease(zio.Console.printLine("acquire").ignore.as(5))(i =>zio.Console.printLine(s"closing $i").ignore).map(resource => streamGen(resource))
-//
-//    val stream = new PushStream[Any, Nothing, Int] {
-//
-//      override def subscribe[OutR2 <: Any, OutE2 >: Nothing](observer: Observer[OutR2, OutE2, Int]): URIO[OutR2, Unit] = {
-//        val x: ZIO[OutR2, Nothing, Unit] = zio.Console.printLine(s"inside subscribe").ignore *>
-//        Scope.make.flatMap { scope =>
-//          scope.extend(scoped).flatMap { downstream =>
-//            zio.Console.printLine(s"got the downstream").ignore *>
-//            downstream.subscribe(observer).onExit(exit => zio.Console.printLine(s"downstream emitted elements, we can close the scope").ignore *> scope.close(exit)).unit
-//          }
-//        }
-//        x
-//      }
-//    }
-//
-//    val job = stream
-//
-//    job.runCollect.unit
-//  }
   /** Creates a stream from an effect producing values of type `A` until it fails with None.
     */
   def repeatZIOOption[R, E, A](fa: => ZIO[R, Option[E], A])(implicit trace: Trace): PushStream[R, E, A] = {
@@ -361,17 +322,4 @@ object PushStream {
     unwrapScoped(scopedStream)
   }
 
-  //  /**
-//   * Creates a stream from an effect producing chunks of `A` values until it
-//   * fails with None.
-//   */
-//  def repeatZIOChunkOption[R, E, A](
-//                                     fa: => ZIO[R, Option[E], Chunk[A]]
-//                                   )(implicit trace: Trace): ZStream[R, E, A] =
-//    unfoldChunkZIO(fa)(fa =>
-//      fa.map(chunk => Some((chunk, fa))).catchAll {
-//        case None    => ZIO.none
-//        case Some(e) => ZIO.fail(e)
-//      }
-//    )
 }

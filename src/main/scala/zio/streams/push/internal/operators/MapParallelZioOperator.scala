@@ -14,6 +14,17 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
 
   override def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, OutB]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
 
+    /** @param permits
+      *   The maximum number of tasks to run in parallel
+      * @param buffer
+      *   The queue used to decouple the upstream and downstream
+      * @param completionPromise
+      *   this can be completed or failed once to indicate there is a failure or completion communicate downstream. Either the upstream or
+      *   downstream side of the queue may single completion or failure.
+      * @param shutdownPromise
+      *   This indicates that the queue has been drained after completion has been requested.
+      * @return
+      */
     def run(
         permits: TSemaphore,
         buffer: Queue[Fiber[OutE1, OutB]],
