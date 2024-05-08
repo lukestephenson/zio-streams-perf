@@ -1,7 +1,8 @@
 package fs2.example
 
-import zio.{ZIOAppDefault, _}
+import zio.{ZIOAppDefault, *}
 import zio.stream.{ZChannel, ZStream}
+import zio.streams.push.PushStream
 
 case class ExampleModel(value: Long)
 
@@ -28,14 +29,21 @@ object ZioExample extends ZIOAppDefault {
 
     val baselineListBuild = ZIO.succeed((1.toLong to max.toLong).foreach(i => ZChannel.write(ExampleModel(i)))).unit
 
-    val program = for {
-//      _ <- timed("baselineListBuild", baselineListBuild)
-      _ <- timed("consumeWithFold", consumeWithFold.unit)
-//      _ <- timed("consumeWithRef", consumeWithRef)
-      _ <- ZIO.sleep(10.seconds)
-    } yield ()
+//    val program = for {
+////      _ <- timed("baselineListBuild", baselineListBuild)
+//      _ <- timed("consumeWithFold", consumeWithFold.unit)
+////      _ <- timed("consumeWithRef", consumeWithRef)
+//      _ <- ZIO.sleep(10.seconds)
+//    } yield ()
+//
+//    program.withRuntimeFlags(RuntimeFlags.disable(RuntimeFlag.CooperativeYielding))
 
-    program.withRuntimeFlags(RuntimeFlags.disable(RuntimeFlag.CooperativeYielding))
+    PushStream.range(1, 10)
+      .tap(i => Console.printLine(s"got $i"))
+      .buffer(5)
+      .take(2)
+      .tap(i => Console.printLine(s"take got $i").delay(1.second))
+      .runCollect
   }
 
   private def timed(description: String, task: UIO[Unit]): ZIO[Any, Nothing, Unit] = {

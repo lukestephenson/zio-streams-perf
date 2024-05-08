@@ -2,7 +2,7 @@ package zio.streams.push.internal
 
 import zio.{UIO, URIO, ZIO}
 
-trait Observer[R, E, -T] {
+trait Observer[R, -E, -T] {
   def onNext(elem: T): URIO[R, Ack]
 
   def onError(e: E): URIO[R, Unit]

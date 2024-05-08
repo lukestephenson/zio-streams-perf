@@ -3,7 +3,12 @@ import zio.streams.push.PushStream.Operator
 import zio.streams.push.internal.{Ack, Acks, Observer}
 import zio.*
 
-class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
+enum BufferStrategy {
+  case Blocking(capacity: Int)
+  case BufferThenDropOldest(capacity: Int)
+}
+
+class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
     extends Operator[InA, OutR, OutE, InA] {
 
   private enum Complete {
@@ -11,6 +16,8 @@ class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
   }
 
   def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, InA]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
+
+    type QueueType = Either[OutE1, InA]
 
     /** @param completionPromise
       *   this can be completed or failed once to indicate there is a failure or completion communicate downstream. Either the upstream or
@@ -20,6 +27,7 @@ class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
       * @return
       */
     def run(
+        queue: Queue[QueueType],
         failurePromise: Promise[Nothing, OutE1],
         completionPromise: Promise[Nothing, Complete],
         shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
@@ -36,14 +44,14 @@ class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
           else {
             for {
               _ <- debug(s"offer $elem")
-              _ <- queue.offer(elem)
+              _ <- queue.offer(Right(elem))
             } yield if (stop) Ack.Stop else Ack.Continue
           }
         }
 
         override def onError(e: OutE1): UIO[Unit] = {
           // for errors, we want to interrupt any outstanding work immediately
-          debug("onError start").ignore *> failurePromise.succeed(e).unit *> shutdownPromise.await.unit *> debug("onError done").ignore
+          debug("onError start").ignore *> queue.offer(Left(e)) *> shutdownPromise.await.unit *> debug("onError done").ignore
         }
 
         override def onComplete(): UIO[Unit] = {
@@ -56,9 +64,13 @@ class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
       def take(): URIO[OutR1, Nothing] = {
         val runOnce: URIO[OutR1, Unit] = for {
           element <- queue.take
-          _ <- ZIO.unless(stop)(observer.onNext(element).flatMap(ack =>
-            ZIO.when(ack == Ack.Stop)(ZIO.succeed { stop = true } *> completionPromise.succeed(Complete.Done))
-          ))
+          _ <- ZIO.unless(stop) {
+            element match
+              case Left(value) => observer.onError(value)
+              case Right(value) => observer.onNext(value).flatMap(ack =>
+                  ZIO.when(ack == Ack.Stop)(ZIO.succeed { stop = true } *> completionPromise.succeed(Complete.Done))
+                )
+          }
         } yield ()
 
         runOnce *> take()
@@ -88,12 +100,19 @@ class BufferOperator[InA, OutR, OutE](queue: => Queue[InA])
       } yield consumer
     }
 
+    def makeQueue: UIO[Queue[QueueType]] = {
+      bufferStrategy match
+        case BufferStrategy.Blocking(capacity) => Queue.bounded[QueueType](capacity)
+        case BufferStrategy.BufferThenDropOldest(capacity) => Queue.sliding[QueueType](capacity)
+    }
+
     // TODO these resources should ideally be scoped
     for {
+      queue <- makeQueue
       failurePromise <- Promise.make[Nothing, OutE1]
       completionPromise <- Promise.make[Nothing, Complete]
       shutdownPromise <- Promise.make[Nothing, Complete]
-      observer <- run(failurePromise, completionPromise, shutdownPromise)
+      observer <- run(queue, failurePromise, completionPromise, shutdownPromise)
     } yield observer
   }
 }

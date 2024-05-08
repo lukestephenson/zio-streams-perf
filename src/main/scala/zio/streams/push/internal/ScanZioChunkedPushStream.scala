@@ -10,11 +10,11 @@ class ScanZioChunkedPushStream[InR, InE, InA, OutR <: InR, OutE >: InE, S](
     seed: S,
     op: (S, InA) => ZIO[OutR, OutE, S]) extends ChunkedPushStream[OutR, OutE, S] {
 
-  override def subscribe[OutR2 <: OutR, OutE2 >: OutE](observer: Observer[OutR2, OutE2, Chunk[S]]): URIO[OutR2, Unit] = {
-    val subscription = upstream.subscribe(new DefaultObserver[OutR2, OutE2, Chunk[InA]](observer) {
+  override def subscribe[OutR2 <: OutR](observer: Observer[OutR2, OutE, Chunk[S]]): URIO[OutR2, Unit] = {
+    val subscription = upstream.subscribe(new DefaultObserver[OutR2, OutE, Chunk[InA]](observer) {
       var state = seed
       override def onNext(elem: Chunk[InA]): URIO[OutR2, Ack] = {
-        def mapAccumChunks(localSeed: S): ZIO[OutR2, OutE2, (S, Chunk[S])] = {
+        def mapAccumChunks(localSeed: S): ZIO[OutR2, OutE, (S, Chunk[S])] = {
           elem.mapAccumZIO(localSeed)((s1, a) => op(s1, a).map(b => (b, b)))
         }
         mapAccumChunks(state).foldZIO(

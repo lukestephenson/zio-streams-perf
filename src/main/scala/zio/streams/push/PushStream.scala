@@ -9,7 +9,7 @@ import zio.streams.push.internal.operators.*
 import zio.{Chunk, Exit, Promise, Queue, Schedule, Scope, Trace, UIO, URIO, Unsafe, ZIO}
 
 trait PushStream[-R, +E, +A] { self =>
-  def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit]
+  def subscribe[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit]
 
   def map[B](f: A => B): PushStream[R, E, B] = new LiftByOperatorPushStream(this, new MapOperator[R, E, A, B](f))
 
@@ -79,7 +79,7 @@ trait PushStream[-R, +E, +A] { self =>
       ZIO.acquireRelease(Queue.bounded[A](capacity))(_.shutdown)
 
     val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
-      queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
+      ??? //  queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E]()))
 
     PushStream.unwrapScoped(x)
   }
@@ -89,7 +89,7 @@ trait PushStream[-R, +E, +A] { self =>
       ZIO.acquireRelease(Queue.sliding[A](capacity))(_.shutdown)
 
     val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
-      queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
+      ??? // queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
 
     PushStream.unwrapScoped(x)
   }
@@ -97,11 +97,11 @@ trait PushStream[-R, +E, +A] { self =>
   def orElse[R1 <: R, E1 >: E, A1 >: A](
       that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] = {
     new PushStream[R1, E1, A1] {
-      override def subscribe[OutR2 <: R1, OutE2 >: E1](observer: Observer[OutR2, OutE2, A1]): URIO[OutR2, Unit] = {
-        self.subscribe(new DefaultObserver[OutR2, OutE2, A1](observer) {
+      override def subscribe[OutR2 <: R1](observer: Observer[OutR2, E1, A1]): URIO[OutR2, Unit] = {
+        self.subscribe(new DefaultObserver[OutR2, E1, A1](observer) {
           override def onNext(elem: A1): URIO[OutR2, Ack] = observer.onNext(elem)
 
-          override def onError(e: OutE2): URIO[OutR2, Unit] = {
+          override def onError(e: E1): URIO[OutR2, Unit] = {
             that.subscribe(observer)
           }
         })
@@ -111,14 +111,14 @@ trait PushStream[-R, +E, +A] { self =>
 
   def flatMap[R1 <: R, E1 >: E, B](f: A => PushStream[R1, E1, B])(implicit trace: Trace): PushStream[R1, E1, B] = {
     new PushStream[R1, E1, B] {
-      override def subscribe[OutR2 <: R1, OutE2 >: E1](observer: Observer[OutR2, OutE2, B]): URIO[OutR2, Unit] = {
+      override def subscribe[OutR2 <: R1](observer: Observer[OutR2, E1, B]): URIO[OutR2, Unit] = {
         // ZIO.suspendSucceed is used to make flatMap stack safe
         ZIO.suspendSucceed(
-          self.subscribe(new DefaultObserver[OutR2, OutE2, A](observer) {
+          self.subscribe(new DefaultObserver[OutR2, E1, A](observer) {
             override def onNext(elem: A): URIO[OutR2, Ack] = {
               var lastAck: Ack = Ack.Continue
               val newStream: PushStream[R1, E1, B] = f(elem)
-              newStream.subscribe(new Observer[OutR2, OutE2, B] {
+              newStream.subscribe(new Observer[OutR2, E1, B] {
                 override def onNext(innerElem: B): URIO[OutR2, Ack] = {
                   // TODO -- if downstream requests a stop here, signal that back up.
                   observer.onNext(innerElem).tap { ack =>
@@ -128,7 +128,7 @@ trait PushStream[-R, +E, +A] { self =>
                   }
                 }
 
-                override def onError(e: OutE2): URIO[OutR2, Unit] = {
+                override def onError(e: E1): URIO[OutR2, Unit] = {
                   lastAck = Ack.Stop
                   observer.onError(e)
                 }
@@ -152,8 +152,8 @@ trait PushStream[-R, +E, +A] { self =>
 
   def concat[R1 <: R, E1 >: E, A1 >: A](that: => PushStream[R1, E1, A1]): PushStream[R1, E1, A1] = {
     new PushStream[R1, E1, A1] {
-      override def subscribe[OutR2 <: R1, OutE2 >: E1](observer: Observer[OutR2, OutE2, A1]): URIO[OutR2, Unit] = {
-        self.subscribe(new DefaultObserver[OutR2, OutE2, A1](observer) {
+      override def subscribe[OutR2 <: R1](observer: Observer[OutR2, E1, A1]): URIO[OutR2, Unit] = {
+        self.subscribe(new DefaultObserver[OutR2, E1, A1](observer) {
           var lastAck: Ack = Ack.Continue
           override def onNext(elem: A1): URIO[OutR2, Ack] = observer.onNext(elem).tap(ack => ZIO.succeed { lastAck = ack })
 
@@ -235,7 +235,7 @@ object PushStream {
 
   def fromZIO[R, E, A](fa: => ZIO[R, E, A])(implicit trace: Trace): PushStream[R, E, A] =
     new SourcePushStream[R, E, A] {
-      override protected def startSource[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit] = {
+      override protected def startSource[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit] = {
         fa.foldZIO(observer.onError, observer.onNext).unit
       }
     }
@@ -247,7 +247,7 @@ object PushStream {
 
   def unwrapScoped[R, E, A](f: => ZIO[R with Scope, E, PushStream[R, E, A]])(implicit trace: Trace): PushStream[R, E, A] = {
     new PushStream[R, E, A] {
-      override def subscribe[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit] = {
+      override def subscribe[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit] = {
         ZIO.uninterruptibleMask { restore =>
           Scope.make.flatMap { scope =>
 //            val newObserver = new Observer[OutR2, OutE2, A] {
@@ -264,9 +264,8 @@ object PushStream {
                   observer.onError(failure) *> scope.close(Exit.fail(failure)),
               { downstream =>
                 val downSub: URIO[OutR2, Unit] = restore(downstream.subscribe(observer))
-                val y: URIO[OutR2, Unit] =
-                  downSub.onExit(exit => scope.close(exit)).unit
-                zio.Console.printLine("got downstream").ignore *> y
+
+                downSub.onExit(exit => scope.close(exit)).unit
               }
             ).onExit(exit => scope.close(exit))
           }
@@ -279,7 +278,7 @@ object PushStream {
     */
   def repeatZIOOption[R, E, A](fa: => ZIO[R, Option[E], A])(implicit trace: Trace): PushStream[R, E, A] = {
     new SourcePushStream[R, E, A] {
-      override protected def startSource[OutR2 <: R, OutE2 >: E](observer: Observer[OutR2, OutE2, A]): URIO[OutR2, Unit] = {
+      override protected def startSource[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit] = {
         def pullOnce(): URIO[OutR2, Unit] = {
           fa.foldZIO(
             failure = {
@@ -297,7 +296,7 @@ object PushStream {
 
   def fromIterable[T](elems: Iterable[T]): PushStream[Any, Nothing, T] = {
     new SourcePushStream[Any, Nothing, T] {
-      override def startSource[OutR, OutE](observer: Observer[OutR, OutE, T]): ZIO[OutR, OutE, Unit] = {
+      override def startSource[OutR](observer: Observer[OutR, Nothing, T]): ZIO[OutR, Nothing, Unit] = {
         Observers.emitAll(observer, elems).unit
       }
     }
@@ -305,7 +304,7 @@ object PushStream {
 
   def range(start: Int, end: Int): PushStream[Any, Nothing, Int] = {
     new SourcePushStream[Any, Nothing, Int] {
-      override def startSource[OutR2 <: Any, OutE2 >: Nothing](observer: Observer[OutR2, OutE2, Int]): ZIO[OutR2, OutE2, Unit] = {
+      override def startSource[OutR2 <: Any](observer: Observer[OutR2, Nothing, Int]): ZIO[OutR2, Nothing, Unit] = {
         loop(start, observer)
       }
 
