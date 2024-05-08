@@ -217,7 +217,7 @@ trait PushStream[-R, +E, +A] { self =>
 object PushStream {
 
   trait Operator[InA, OutR, OutE, +OutB] {
-    def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, OutB]): URIO[OutR1, Observer[OutR1, OutE1, InA]]
+    def apply[OutR1 <: OutR](observer: Observer[OutR1, OutE, OutB]): URIO[OutR1, Observer[OutR1, OutE, InA]]
   }
 
   def apply[T](elems: T*): PushStream[Any, Nothing, T] = {

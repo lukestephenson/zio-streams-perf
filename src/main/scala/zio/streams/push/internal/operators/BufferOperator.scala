@@ -15,9 +15,9 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
     case Done
   }
 
-  def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, InA]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
+  def apply[OutR1 <: OutR](observer: Observer[OutR1, OutE, InA]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
 
-    type QueueType = Either[OutE1, InA]
+    type QueueType = Either[OutE, InA]
 
     /** @param completionPromise
       *   this can be completed or failed once to indicate there is a failure or completion communicate downstream. Either the upstream or
@@ -28,9 +28,9 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
       */
     def run(
         queue: Queue[QueueType],
-        failurePromise: Promise[Nothing, OutE1],
+        failurePromise: Promise[Nothing, OutE],
         completionPromise: Promise[Nothing, Complete],
-        shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
+        shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
       var stop = false
 
       def debug(content: => String): UIO[Unit] = {
@@ -38,7 +38,7 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
         ZIO.unit
       }
 
-      val consumer = new Observer[OutR1, OutE1, InA] {
+      val consumer = new Observer[OutR1, OutE, InA] {
         override def onNext(elem: InA): ZIO[OutR1, Nothing, Ack] = {
           if (stop) Acks.Stop
           else {
@@ -49,7 +49,7 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
           }
         }
 
-        override def onError(e: OutE1): UIO[Unit] = {
+        override def onError(e: OutE): UIO[Unit] = {
           // for errors, we want to interrupt any outstanding work immediately
           debug("onError start").ignore *> queue.offer(Left(e)) *> shutdownPromise.await.unit *> debug("onError done").ignore
         }
@@ -87,7 +87,7 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
               ZIO.succeed {
                 stop = true
               } *>
-              cause.failureOption.fold(observer.onError(null.asInstanceOf[OutE1]))(e => observer.onError(e))
+              cause.failureOption.fold(observer.onError(null.asInstanceOf[OutE]))(e => observer.onError(e))
           },
           success = { _ => observer.onComplete() }
         )
@@ -109,7 +109,7 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
     // TODO these resources should ideally be scoped
     for {
       queue <- makeQueue
-      failurePromise <- Promise.make[Nothing, OutE1]
+      failurePromise <- Promise.make[Nothing, OutE]
       completionPromise <- Promise.make[Nothing, Complete]
       shutdownPromise <- Promise.make[Nothing, Complete]
       observer <- run(queue, failurePromise, completionPromise, shutdownPromise)

@@ -6,9 +6,9 @@ import zio.{RIO, Schedule, UIO, URIO, ZIO}
 
 class ScheduleOperator[InA, OutR, OutE, OutB, OutC](schedule: => Schedule[OutR, InA, OutB], f: InA => OutC, g: OutB => OutC)
     extends Operator[InA, OutR, OutE, OutC] {
-  def apply[OutR1 <: OutR, OutE1 >: OutE](out: Observer[OutR1, OutE1, OutC]): UIO[Observer[OutR1, OutE1, InA]] = {
+  def apply[OutR1 <: OutR](out: Observer[OutR1, OutE, OutC]): UIO[Observer[OutR1, OutE, InA]] = {
     schedule.driver.map { driver =>
-      new DefaultObserver[OutR1, OutE1, InA](out) {
+      new DefaultObserver[OutR1, OutE, InA](out) {
         override def onNext(elem: InA): URIO[OutR1, Ack] = {
           driver.next(elem).either.flatMap {
             case Left(None) =>
