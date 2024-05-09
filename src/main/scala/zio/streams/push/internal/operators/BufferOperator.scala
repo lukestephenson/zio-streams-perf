@@ -29,8 +29,8 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
       var stop = false
 
       def debug(content: => String): UIO[Unit] = {
-        zio.Console.printLine(s"$content").ignore
-//        ZIO.unit
+//        zio.Console.printLine(s"BufferOperator - $content").ignore
+        ZIO.unit
       }
 
       val consumer = new Observer[OutR1, OutE, InA] {
@@ -56,26 +56,52 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
         }
       }
 
-      def take(): URIO[OutR1, Nothing] = {
-        val runOnce: URIO[OutR1, Unit] = for {
-          element <- queue.take
-          _ <- ZIO.unless(stop) {
-            element match
-              case Left(value) => debug("took a failure") *> failurePromise.succeed(value)
-              case Right(value) => observer.onNext(value).flatMap(ack =>
-                  ZIO.when(ack == Ack.Stop)(ZIO.succeed { stop = true } *> completionPromise.succeed(Complete.Done))
-                )
-          }
-        } yield ()
+      def take(): URIO[OutR1, Unit] = {
+        val runOnce: URIO[OutR1, Ack] = for {
+          _ <- debug("take")
+          result <- queue.take.raceEither(completionPromise.await.disconnect)
+          _ <- debug(s"take got $result")
+          lastAck <-
+            result match
+              case Left(element) => pushDownstream(element)
+              case Right(Complete.Done) =>
+                ZIO.succeed(Ack.Stop)
+        } yield lastAck
 
-        runOnce *> take()
+        runOnce.flatMap {
+          case Ack.Stop => ZIO.unit
+          case Ack.Continue => take()
+        }
       }
 
-      def waitUntilEmpty(): UIO[Unit] =
-        debug("waitUntilEmpty") *> queue.size.flatMap(size => if (size <= 0) ZIO.unit else ZIO.sleep(10.millis) *> waitUntilEmpty())
+      def pushDownstream(element: QueueType): URIO[OutR1, Ack] = {
+        if (stop) {
+          ZIO.succeed(Ack.Stop)
+        } else {
+          element match
+            case Left(value) => debug("took a failure") *> failurePromise.succeed(value).as(Ack.Stop)
+            case Right(value) => observer.onNext(value).tap(ack =>
+                ZIO.when(ack == Ack.Stop)(ZIO.succeed {
+                  stop = true
+                } *> completionPromise.succeed(Complete.Done))
+              )
+        }
+      }
 
-      val gracefulCompletion = completionPromise.await.flatMap(Complete => waitUntilEmpty()).flatMap(_ => observer.onComplete())
-      def failureHandling(takeFiber: Fiber[Nothing, Nothing]) = failurePromise.await
+      def finishRemainingElementsAndComplete(takeFiber: Fiber[Nothing, Unit]): URIO[OutR1, Unit] = {
+        for {
+          _ <- completionPromise.await
+          _ <- debug("finishRemainingElementsAndComplete")
+          _ <- takeFiber.join.ignore
+          remainingElements <- queue.takeAll
+          _ <- ZIO.foreachDiscard(remainingElements)(pushDownstream)
+          _ <- observer.onComplete() // TODO an error may have occurred emitting the remaining elements and onComplete should not be called.
+        } yield ()
+      }
+
+      // Only call onError once on downstream. TODO, handle other failure types
+      def failureHandling(takeFiber: Fiber[Nothing, Unit]) = failurePromise.await
+        .ensuring(takeFiber.interrupt.flatMap(exit => debug(s"interrupt finished with $exit")))
         .foldCauseZIO(
           failure = { cause =>
             debug(s"failed with $cause") *>
@@ -86,12 +112,12 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
           },
           success = { error => observer.onError(error) }
         )
-        .ensuring(takeFiber.interrupt.flatMap(exit => debug(s"interrupt finished with $exit")))
 
       for {
         takeFiber <- take().onError(cause => debug(s"take ended with $cause")).forkDaemon
-        // Only call onError once on downstream. TODO, handle other failure types
-        _ <- ZIO.raceFirst(gracefulCompletion, List(failureHandling(takeFiber))).ensuring(shutdownPromise.succeed(Complete.Done)).fork
+        _ <- ZIO.raceFirst(finishRemainingElementsAndComplete(takeFiber), List(failureHandling(takeFiber))).ensuring(
+          shutdownPromise.succeed(Complete.Done)
+        ).fork
       } yield consumer
     }
 
