@@ -1,10 +1,10 @@
 package zio.streams.push
 
-import zio.test._
-import zio.test.Assertion._
-import zio.test.TestAspect.nonFlaky
+import zio.test.*
+import zio.test.Assertion.*
+import zio.test.TestAspect.{flaky, nonFlaky}
 import zio.{Chunk, Clock, Promise, Queue, Ref, Schedule, Scope, ZIO, durationInt}
-import zio._
+import zio.*
 
 import java.util.concurrent.TimeUnit
 
@@ -258,7 +258,39 @@ object PushStreamSpec extends ZIOSpecDefault with GenZIO {
         for {
           ints <- (PushStream(1) ++ PushStream.never).take(1).runCollect
         } yield assert(ints)(equalTo(Chunk(1)))
-      ) // @@ TestAspect.timeout(1.second)
+      ) @@ TestAspect.timeout(1.second)
+    ),
+    suite("buffer")(
+      test("maintains elements and ordering")(check(Gen.listOfBounded(0, 100)(Gen.int)) { list =>
+        assertZIO(
+          PushStream
+            .fromIterable(list)
+            .buffer(2)
+            .runCollect
+        )(equalTo(Chunk.fromIterable(list)))
+      }),
+      test("buffer the Stream with Error") {
+        val e = new RuntimeException("boom")
+        assertZIO(
+          (PushStream.range(0, 10) ++ PushStream.fail(e))
+            .buffer(2)
+            .runCollect
+            .exit
+        )(fails(equalTo(e)))
+      },
+      test("fast producer progress independently") {
+        for {
+          ref <- Ref.make(List[Int]())
+          latch <- Promise.make[Nothing, Unit]
+          s = PushStream
+            .range(1, 5)
+            .tap(i => ref.update(i :: _) *> latch.succeed(()).when(i == 4))
+            .buffer(2)
+          l1 <- s.take(2).runCollect
+          _ <- latch.await
+          l2 <- ref.get
+        } yield assert(l1.toList)(equalTo((1 to 2).toList)) && assert(l2.reverse)(equalTo((1 to 4).toList))
+      }
     ),
     suite("Constructors")(
       suite("range")(

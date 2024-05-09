@@ -15,7 +15,7 @@ object ChunkedPushStream {
 
   def range(start: Int, end: Int, chunkSize: Int): ChunkedPushStream[Any, Nothing, Int] = {
     new SourcePushStream[Any, Nothing, Chunk[Int]] {
-      override def startSource[OutR2 <: Any, OutE2 >: Nothing](observer: Observer[OutR2, OutE2, Chunk[Int]]): ZIO[OutR2, OutE2, Unit] = {
+      override def startSource[OutR2 <: Any](observer: Observer[OutR2, Nothing, Chunk[Int]]): ZIO[OutR2, Nothing, Unit] = {
         loop(start, observer)
       }
 

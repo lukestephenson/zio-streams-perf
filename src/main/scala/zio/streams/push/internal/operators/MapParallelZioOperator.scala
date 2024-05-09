@@ -12,13 +12,24 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
     case Done
   }
 
-  override def apply[OutR1 <: OutR, OutE1 >: OutE](observer: Observer[OutR1, OutE1, OutB]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
+  override def apply[OutR1 <: OutR](observer: Observer[OutR1, OutE, OutB]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
 
+    /** @param permits
+      *   The maximum number of tasks to run in parallel
+      * @param buffer
+      *   The queue used to decouple the upstream and downstream
+      * @param completionPromise
+      *   this can be completed or failed once to indicate there is a failure or completion communicate downstream. Either the upstream or
+      *   downstream side of the queue may single completion or failure.
+      * @param shutdownPromise
+      *   This indicates that the queue has been drained after completion has been requested.
+      * @return
+      */
     def run(
         permits: TSemaphore,
-        buffer: Queue[Fiber[OutE1, OutB]],
-        failurePromise: Promise[OutE1, Complete],
-        shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE1, InA]] = {
+        buffer: Queue[Fiber[OutE, OutB]],
+        failurePromise: Promise[OutE, Complete],
+        shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
       var stop = false
 
       def available(label: String): UIO[Unit] = {
@@ -33,7 +44,7 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
         ZIO.unit
       }
 
-      val consumer = new Observer[OutR1, OutE1, InA] {
+      val consumer = new Observer[OutR1, OutE, InA] {
         override def onNext(elem: InA): ZIO[OutR1, Nothing, Ack] = {
           if (stop) Acks.Stop
           else {
@@ -52,7 +63,7 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
           }
         }
 
-        override def onError(e: OutE1): UIO[Unit] = {
+        override def onError(e: OutE): UIO[Unit] = {
           // for errors, we want to interrupt any outstanding work immediately
           debug("onError start").ignore *> failurePromise.fail(e).unit *> shutdownPromise.await.unit *> debug("onError done").ignore
         }
@@ -111,7 +122,7 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
                 ZIO.succeed {
                   stop = true
                 } *>
-                cause.failureOption.fold(observer.onError(null.asInstanceOf[OutE1]))(e => observer.onError(e)) *>
+                cause.failureOption.fold(observer.onError(null.asInstanceOf[OutE]))(e => observer.onError(e)) *>
                 cancelRunningJobs()
             },
             success = { _ => observer.onComplete() }
@@ -128,8 +139,8 @@ class MapParallelZioOperator[InA, OutR, OutE, OutB](parallelism: Int, f: InA => 
     // TODO these resources should ideally be scoped
     for {
       permits <- TSemaphore.makeCommit(parallelism)
-      buffer <- Queue.bounded[Fiber[OutE1, OutB]](parallelism * 2)
-      failurePromise <- Promise.make[OutE1, Complete]
+      buffer <- Queue.bounded[Fiber[OutE, OutB]](parallelism * 2)
+      failurePromise <- Promise.make[OutE, Complete]
       shutdownPromise <- Promise.make[Nothing, Complete]
       observer <- run(permits, buffer, failurePromise, shutdownPromise)
     } yield observer

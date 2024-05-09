@@ -7,9 +7,9 @@ import zio.{Ref, URIO, ZIO}
 
 class TakeOperator[R, E, A](n: Long) extends Operator[A, R, E, A] {
 
-  override def apply[OutR1 <: R, OutE1 >: E](out: Observer[OutR1, OutE1, A]): URIO[OutR1, Observer[OutR1, OutE1, A]] =
+  override def apply[OutR1 <: R](out: Observer[OutR1, E, A]): URIO[OutR1, Observer[OutR1, E, A]] =
     Ref.make(0).map { ref =>
-      new DefaultObserver[OutR1, OutE1, A](out) {
+      new DefaultObserver[OutR1, E, A](out) {
         override def onNext(elem: A): URIO[OutR1, Ack] = {
           ref.updateAndGet(_ + 1).flatMap { emitted =>
             out.onNext(elem).flatMap { downStreamAck =>
