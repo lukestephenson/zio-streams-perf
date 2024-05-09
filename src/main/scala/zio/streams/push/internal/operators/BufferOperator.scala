@@ -3,21 +3,16 @@ import zio.streams.push.PushStream.Operator
 import zio.streams.push.internal.{Ack, Acks, Observer}
 import zio.*
 
-enum BufferStrategy {
-  case Blocking(capacity: Int)
-  case BufferThenDropOldest(capacity: Int)
-}
-
-class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
+class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
     extends Operator[InA, OutR, OutE, InA] {
+
+  private type QueueType = Either[OutE, InA]
 
   private enum Complete {
     case Done
   }
 
   def apply[OutR1 <: OutR](observer: Observer[OutR1, OutE, InA]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
-
-    type QueueType = Either[OutE, InA]
 
     /** @param completionPromise
       *   this can be completed or failed once to indicate there is a failure or completion communicate downstream. Either the upstream or
@@ -34,8 +29,8 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
       var stop = false
 
       def debug(content: => String): UIO[Unit] = {
-        //        zio.Console.printLine(s"$name - $content").ignore
-        ZIO.unit
+        zio.Console.printLine(s"$content").ignore
+//        ZIO.unit
       }
 
       val consumer = new Observer[OutR1, OutE, InA] {
@@ -66,7 +61,7 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
           element <- queue.take
           _ <- ZIO.unless(stop) {
             element match
-              case Left(value) => observer.onError(value)
+              case Left(value) => debug("took a failure") *> failurePromise.succeed(value)
               case Right(value) => observer.onNext(value).flatMap(ack =>
                   ZIO.when(ack == Ack.Stop)(ZIO.succeed { stop = true } *> completionPromise.succeed(Complete.Done))
                 )
@@ -77,9 +72,9 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
       }
 
       def waitUntilEmpty(): UIO[Unit] =
-        debug("waitUntilEmpty") *> queue.size.flatMap(size => if (size == 0) ZIO.unit else ZIO.sleep(10.millis) *> waitUntilEmpty())
+        debug("waitUntilEmpty") *> queue.size.flatMap(size => if (size <= 0) ZIO.unit else ZIO.sleep(10.millis) *> waitUntilEmpty())
 
-      val gracefulCompletion = completionPromise.await.flatMap(Complete => waitUntilEmpty())
+      val gracefulCompletion = completionPromise.await.flatMap(Complete => waitUntilEmpty()).flatMap(_ => observer.onComplete())
       def failureHandling(takeFiber: Fiber[Nothing, Nothing]) = failurePromise.await
         .foldCauseZIO(
           failure = { cause =>
@@ -89,7 +84,7 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
               } *>
               cause.failureOption.fold(observer.onError(null.asInstanceOf[OutE]))(e => observer.onError(e))
           },
-          success = { _ => observer.onComplete() }
+          success = { error => observer.onError(error) }
         )
         .ensuring(takeFiber.interrupt.flatMap(exit => debug(s"interrupt finished with $exit")))
 
@@ -100,15 +95,8 @@ class BufferOperator[InA, OutR, OutE](bufferStrategy: BufferStrategy)
       } yield consumer
     }
 
-    def makeQueue: UIO[Queue[QueueType]] = {
-      bufferStrategy match
-        case BufferStrategy.Blocking(capacity) => Queue.bounded[QueueType](capacity)
-        case BufferStrategy.BufferThenDropOldest(capacity) => Queue.sliding[QueueType](capacity)
-    }
-
     // TODO these resources should ideally be scoped
     for {
-      queue <- makeQueue
       failurePromise <- Promise.make[Nothing, OutE]
       completionPromise <- Promise.make[Nothing, Complete]
       shutdownPromise <- Promise.make[Nothing, Complete]

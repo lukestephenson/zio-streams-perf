@@ -75,21 +75,18 @@ trait PushStream[-R, +E, +A] { self =>
   }
 
   def buffer(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
-    val queueDef: ZIO[Any with Scope, Nothing, Queue[A]] =
-      ZIO.acquireRelease(Queue.bounded[A](capacity))(_.shutdown)
-
-    val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
-      ??? //  queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E]()))
-
-    PushStream.unwrapScoped(x)
+    bufferWithQueue(Queue.bounded[Either[E, A]](capacity))
   }
 
   def bufferSliding(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
-    val queueDef: ZIO[Any with Scope, Nothing, Queue[A]] =
-      ZIO.acquireRelease(Queue.sliding[A](capacity))(_.shutdown)
+    bufferWithQueue(Queue.sliding[Either[E, A]](capacity))
+  }
 
+  private def bufferWithQueue(queueDef: UIO[Queue[Either[E, A]]]): PushStream[R, E, A] = {
+
+    val scopedQueue = ZIO.acquireRelease(queueDef)(_.shutdown)
     val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
-      ??? // queueDef.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
+      scopedQueue.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
 
     PushStream.unwrapScoped(x)
   }
@@ -234,9 +231,9 @@ object PushStream {
     fromZIO(ZIO.fail(error))
 
   def fromZIO[R, E, A](fa: => ZIO[R, E, A])(implicit trace: Trace): PushStream[R, E, A] =
-    new SourcePushStream[R, E, A] {
-      override protected def startSource[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit] = {
-        fa.foldZIO(observer.onError, observer.onNext).unit
+    new PushStream[R, E, A] {
+      override def subscribe[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit] = {
+        fa.foldZIO(observer.onError, a => observer.onNext(a).flatMap(_ => observer.onComplete())).unit
       }
     }
 
@@ -250,13 +247,6 @@ object PushStream {
       override def subscribe[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit] = {
         ZIO.uninterruptibleMask { restore =>
           Scope.make.flatMap { scope =>
-//            val newObserver = new Observer[OutR2, OutE2, A] {
-//              override def onNext(elem: A): URIO[OutR2, Ack] = observer.onNext(elem)
-//
-//              override def onError(e: OutE2): URIO[OutR2, Unit] = observer.onError(e)
-//
-//              override def onComplete(): URIO[OutR2, Unit] = observer.onComplete()
-//            }
             // TODO remove the orDie
             restore(scope.extend(f)).foldZIO(
               failure =>
