@@ -456,11 +456,9 @@ object PushStreamSpec extends ZIOSpecDefault with GenZIO {
             _ <- PushStream.acquireReleaseWith(push("open1"))(_ => push("close1"))
             _ <- PushStream.apply((), ())
               // .fromChunks(Chunk(()), Chunk(()))
-              .tap(_ => ZIO.debug("use2") *> push("use2"))
+              .tap(_ => push("use2"))
               .ensuring(push("close2"))
-            _ <- PushStream.acquireReleaseWith(ZIO.debug("open3") *> push("open3"))(_ =>
-              ZIO.debug("close3") *> push("close3")
-            )
+            _ <- PushStream.acquireReleaseWith(push("open3"))(_ => push("close3"))
             _ <- PushStream.apply((), ())
 //              .fromChunks(Chunk(()), Chunk(()))
               .tap(_ => push("use4"))
@@ -497,9 +495,9 @@ object PushStreamSpec extends ZIOSpecDefault with GenZIO {
           stream = for {
             _ <- PushStream(1, 2)
 //              .fromChunks(Chunk(1), Chunk(2))
-              .tap(n => ZIO.debug(s">>> use2 $n") *> push("use2"))
-            _ <- PushStream.acquireReleaseWith(ZIO.debug("open3") *> push("open3"))(_ =>
-              ZIO.debug("close3") *> push("close3")
+              .tap(n => push("use2"))
+            _ <- PushStream.acquireReleaseWith(push("open3"))(_ =>
+              push("close3")
             )
           } yield ()
           _ <- stream.runDrain
