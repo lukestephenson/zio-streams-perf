@@ -1,12 +1,20 @@
 package zio.streams.push.internal.operators
-import zio.streams.push.PushStream.Operator
-import zio.streams.push.internal.{Ack, Acks, Observer}
 import zio.*
+import zio.streams.push.PushStream.Operator
+import zio.streams.push.internal.operators.BufferOperator.QueueType
+import zio.streams.push.internal.{Ack, Acks, Observer}
 
-class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
+object BufferOperator {
+  enum QueueType[+OutE, +InA] {
+    case QueueError(e: OutE)
+    case QueueElement(elem: InA)
+    case QueueComplete
+  }
+
+}
+
+class BufferOperator[InA, OutR, OutE](queue: Queue[QueueType[OutE, InA]])
     extends Operator[InA, OutR, OutE, InA] {
-
-  private type QueueType = Either[OutE, InA]
 
   private enum Complete {
     case Done
@@ -22,11 +30,10 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
       * @return
       */
     def run(
-        queue: Queue[QueueType],
         failurePromise: Promise[Nothing, OutE],
-        completionPromise: Promise[Nothing, Complete],
         shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
       var stop = false
+      var shutdown = false
 
       def debug(content: => String): UIO[Unit] = {
 //        zio.Console.printLine(s"BufferOperator - $content").ignore
@@ -39,64 +46,51 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
           else {
             for {
               _ <- debug(s"offer $elem")
-              _ <- queue.offer(Right(elem))
+              _ <- queue.offer(QueueType.QueueElement(elem))
             } yield if (stop) Ack.Stop else Ack.Continue
           }
         }
 
         override def onError(e: OutE): UIO[Unit] = {
           // for errors, we want to interrupt any outstanding work immediately
-          debug("onError start").ignore *> queue.offer(Left(e)) *> shutdownPromise.await.unit *> debug("onError done").ignore
+          ZIO.unless(shutdown) {
+            debug("onError start").ignore *> queue.offer(QueueType.QueueError(e)) *> shutdownPromise.await.unit *> debug(
+              "onError done"
+            ).ignore
+          }.unit
         }
 
         override def onComplete(): UIO[Unit] = {
-          completionPromise.succeed(Complete.Done).unit *> shutdownPromise.await.unit *> debug(" onComplete done").onExit(exit =>
-            debug(s"oncomplete exit with $exit")
-          )
+          ZIO.unless(shutdown) {
+            queue.offer(QueueType.QueueComplete) *> shutdownPromise.await.unit *> debug(" onComplete done").onExit(exit =>
+              debug(s"oncomplete exit with $exit")
+            )
+          }.unit
         }
       }
 
       def take(): URIO[OutR1, Unit] = {
         val runOnce: URIO[OutR1, Ack] = for {
           _ <- debug("take")
-          result <- queue.take.raceEither(completionPromise.await.disconnect)
+          result <- queue.take
           _ <- debug(s"take got $result")
           lastAck <-
             result match
-              case Left(element) => pushDownstream(element)
-              case Right(Complete.Done) =>
-                ZIO.succeed(Ack.Stop)
+              case QueueType.QueueError(e) => debug("took a failure") *> failurePromise.succeed(e).as(Ack.Stop)
+              case QueueType.QueueComplete => debug("took complete") *> observer.onComplete().as(Ack.Stop)
+              case QueueType.QueueElement(element) => observer.onNext(element).tap(ack =>
+                  debug("got stop from downstream") *> ZIO.when(ack == Ack.Stop)(ZIO.succeed {
+                    stop = true
+                    shutdown = true
+                  } *> observer.onComplete().as(Ack.Stop) *> queue.takeAll // drain the queue in case it is full and the upstream consumer is blocked on submitting to the queue in onNext
+                  )
+                )
         } yield lastAck
 
         runOnce.flatMap {
           case Ack.Stop => ZIO.unit
           case Ack.Continue => take()
         }
-      }
-
-      def pushDownstream(element: QueueType): URIO[OutR1, Ack] = {
-        if (stop) {
-          ZIO.succeed(Ack.Stop)
-        } else {
-          element match
-            case Left(value) => debug("took a failure") *> failurePromise.succeed(value).as(Ack.Stop)
-            case Right(value) => observer.onNext(value).tap(ack =>
-                ZIO.when(ack == Ack.Stop)(ZIO.succeed {
-                  stop = true
-                } *> completionPromise.succeed(Complete.Done))
-              )
-        }
-      }
-
-      def finishRemainingElementsAndComplete(takeFiber: Fiber[Nothing, Unit]): URIO[OutR1, Unit] = {
-        for {
-          _ <- completionPromise.await
-          _ <- debug("finishRemainingElementsAndComplete")
-          _ <- takeFiber.join.ignore
-          remainingElements <- queue.takeAll
-          _ <- ZIO.foreachDiscard(remainingElements)(pushDownstream)
-          _ <- observer.onComplete() // TODO an error may have occurred emitting the remaining elements and onComplete should not be called.
-        } yield ()
       }
 
       // Only call onError once on downstream. TODO, handle other failure types
@@ -107,6 +101,7 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
             debug(s"failed with $cause") *>
               ZIO.succeed {
                 stop = true
+                shutdown = true
               } *>
               cause.failureOption.fold(observer.onError(null.asInstanceOf[OutE]))(e => observer.onError(e))
           },
@@ -114,8 +109,10 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
         )
 
       for {
-        takeFiber <- take().onError(cause => debug(s"take ended with $cause")).forkDaemon
-        _ <- ZIO.raceFirst(finishRemainingElementsAndComplete(takeFiber), List(failureHandling(takeFiber))).ensuring(
+        takeFiber <- take().onError(cause => debug(s"take ended with $cause")).ensuring(
+          shutdownPromise.succeed(Complete.Done)
+        ).forkDaemon
+        _ <- failureHandling(takeFiber).ensuring(
           shutdownPromise.succeed(Complete.Done)
         ).fork
       } yield consumer
@@ -124,9 +121,8 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[Either[OutE, InA]])
     // TODO these resources should ideally be scoped
     for {
       failurePromise <- Promise.make[Nothing, OutE]
-      completionPromise <- Promise.make[Nothing, Complete]
       shutdownPromise <- Promise.make[Nothing, Complete]
-      observer <- run(queue, failurePromise, completionPromise, shutdownPromise)
+      observer <- run(failurePromise, shutdownPromise)
     } yield observer
   }
 }
