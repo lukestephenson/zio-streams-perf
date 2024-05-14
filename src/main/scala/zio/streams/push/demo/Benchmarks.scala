@@ -3,7 +3,7 @@ package zio.streams.push.demo
 import kyo.{KyoApp, Streams}
 import monix.eval.Task as MonixTask
 import monix.execution.Scheduler.Implicits.global
-import monix.reactive.Observable
+import monix.reactive.{Observable, OverflowStrategy}
 import org.openjdk.jmh.annotations.*
 import zio.ZIO
 import zio.stream.ZStream
@@ -27,8 +27,9 @@ class Benchmarks {
 
   private val zioRuntime = zio.Runtime.default
 
-  private[this] def runZIO[A](io: zio.ZIO[Any, Throwable, A]): A =
+  private def runZIO[A](io: zio.ZIO[Any, Throwable, A]): A = {
     zio.Unsafe.unsafe(implicit u => zioRuntime.unsafe.run(zio.ZIO.yieldNow.flatMap(_ => io)).getOrThrow())
+  }
 
   @Benchmark
   def observableFoldChunk1() = {
@@ -185,16 +186,41 @@ class Benchmarks {
 
   @Benchmark
   def zStream_Map_MapZIO_fold_Chunk1() = {
-    runZIO(ZStream.range(0, 1_000_000, 1)
+    val x: ZIO[Any, Nothing, Int] = ZStream.range(0, 1_000_000, 1)
       .mapZIO(i => ZIO.succeed(i * 4))
       .map(i => i / 2)
       .mapZIO(i => ZIO.succeed(i / 2))
+      .runFold(0)(_ + _)
+    runZIO(x)
+  }
+
+  @Benchmark
+  def observableBuffer() = {
+    Observable.range(0, 1_000_000)
+      .asyncBoundary(OverflowStrategy.BackPressure(8))
+      .foldLeftL(0L)(_ + _).runSyncUnsafe()
+  }
+
+  @Benchmark
+  def pStreamBuffer() = {
+    runZIO(PushStream.range(0, 1_000_000)
+      .buffer(8)
       .runFold(0)(_ + _))
   }
 
-  def kyoStreamMap() = {
+  @Benchmark
+  def zStreamBuffer() = {
+    runZIO(
+      ZStream.range(0, 1_000_000, 1)
+        .buffer(8)
+        .runFold(0)(_ + _)
+    )
+  }
+
+  @Benchmark
+  def kyoStreamBuffer() = {
     val seq = 0 to 1_000_000
-    KyoApp.run(Streams.initSeq(seq).transform(_ * 2).runFold(0)(_ + _))
+    KyoApp.run(Streams.initSeq(seq).buffer(8).runFold(0)(_ + _))
   }
 
 }

@@ -22,16 +22,11 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[QueueType[OutE, InA]])
 
   def apply[OutR1 <: OutR](observer: Observer[OutR1, OutE, InA]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
 
-    /** @param completionPromise
-      *   this can be completed or failed once to indicate there is a failure or completion communicate downstream. Either the upstream or
-      *   downstream side of the queue may single completion or failure.
-      * @param shutdownPromise
+    /** @param shutdownPromise
       *   This indicates that the queue has been drained after completion has been requested.
       * @return
       */
-    def run(
-        failurePromise: Promise[Nothing, OutE],
-        shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
+    def run(shutdownPromise: Promise[Nothing, Complete]): URIO[OutR1, Observer[OutR1, OutE, InA]] = {
       var stop = false
       var shutdown = false
 
@@ -51,22 +46,13 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[QueueType[OutE, InA]])
           }
         }
 
-        override def onError(e: OutE): UIO[Unit] = {
-          // for errors, we want to interrupt any outstanding work immediately
-          ZIO.unless(shutdown) {
-            debug("onError start").ignore *> queue.offer(QueueType.QueueError(e)) *> shutdownPromise.await.unit *> debug(
-              "onError done"
-            ).ignore
-          }.unit
-        }
+        override def onError(e: OutE): UIO[Unit] = offerAndWaitForShutdown(QueueType.QueueError(e))
 
-        override def onComplete(): UIO[Unit] = {
-          ZIO.unless(shutdown) {
-            queue.offer(QueueType.QueueComplete) *> shutdownPromise.await.unit *> debug(" onComplete done").onExit(exit =>
-              debug(s"oncomplete exit with $exit")
-            )
-          }.unit
-        }
+        override def onComplete(): UIO[Unit] = offerAndWaitForShutdown(QueueType.QueueComplete)
+
+        def offerAndWaitForShutdown(element: QueueType[OutE, InA]) = ZIO.unless(shutdown) {
+          queue.offer(element) *> shutdownPromise.await
+        }.unit
       }
 
       def take(): URIO[OutR1, Unit] = {
@@ -76,7 +62,7 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[QueueType[OutE, InA]])
           _ <- debug(s"take got $result")
           lastAck <-
             result match
-              case QueueType.QueueError(e) => debug("took a failure") *> failurePromise.succeed(e).as(Ack.Stop)
+              case QueueType.QueueError(e) => debug("took a failure") *> observer.onError(e).as(Ack.Stop)
               case QueueType.QueueComplete => debug("took complete") *> observer.onComplete().as(Ack.Stop)
               case QueueType.QueueElement(element) => observer.onNext(element).tap(ack =>
                   debug("got stop from downstream") *> ZIO.when(ack == Ack.Stop)(ZIO.succeed {
@@ -93,36 +79,17 @@ class BufferOperator[InA, OutR, OutE](queue: Queue[QueueType[OutE, InA]])
         }
       }
 
-      // Only call onError once on downstream. TODO, handle other failure types
-      def failureHandling(takeFiber: Fiber[Nothing, Unit]) = failurePromise.await
-        .ensuring(takeFiber.interrupt.flatMap(exit => debug(s"interrupt finished with $exit")))
-        .foldCauseZIO(
-          failure = { cause =>
-            debug(s"failed with $cause") *>
-              ZIO.succeed {
-                stop = true
-                shutdown = true
-              } *>
-              cause.failureOption.fold(observer.onError(null.asInstanceOf[OutE]))(e => observer.onError(e))
-          },
-          success = { error => observer.onError(error) }
-        )
-
       for {
         takeFiber <- take().onError(cause => debug(s"take ended with $cause")).ensuring(
           shutdownPromise.succeed(Complete.Done)
         ).forkDaemon
-        _ <- failureHandling(takeFiber).ensuring(
-          shutdownPromise.succeed(Complete.Done)
-        ).fork
       } yield consumer
     }
 
     // TODO these resources should ideally be scoped
     for {
-      failurePromise <- Promise.make[Nothing, OutE]
       shutdownPromise <- Promise.make[Nothing, Complete]
-      observer <- run(failurePromise, shutdownPromise)
+      observer <- run(shutdownPromise)
     } yield observer
   }
 }

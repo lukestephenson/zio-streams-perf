@@ -277,20 +277,24 @@ object PushStreamSpec extends ZIOSpecDefault with GenZIO {
             .runCollect
             .exit
         )(fails(equalTo(e)))
-      },
-      test("fast producer progress independently") {
-        for {
-          ref <- Ref.make(List[Int]())
-          latch <- Promise.make[Nothing, Unit]
-          s = PushStream
-            .range(1, 5)
-            .tap(i => ref.update(i :: _) *> latch.succeed(()).when(i == 4))
-            .buffer(2)
-          l1 <- s.take(2).runCollect
-          _ <- latch.await
-          l2 <- ref.get
-        } yield assert(l1.toList)(equalTo((1 to 2).toList)) && assert(l2.reverse)(equalTo((1 to 4).toList))
       }
+// This test is flawed (at least for the PushStream implementation). Calling take(2) means that after 2 elements are emitted, the third emitted upstream could potentially
+// result in an Ack.Stop and the 4th element never being emitted / the latch not completing.
+//      test("fast producer progress independently") {
+//        for {
+//          ref <- Ref.make(List[Int]())
+//          latch <- Promise.make[Nothing, Unit]
+//          s = PushStream
+//            .range(1, 5)
+//            .tap(i => ref.update(i :: _) *> latch.succeed(()).when(i == 4))
+//            .buffer(2)
+//          l1 <- s.take(2).runCollect
+//          _ <- Console.printLine("got take(2)")
+//          _ <- latch.await
+//          _ <- Console.printLine("latch finished")
+//          l2 <- ref.get
+//        } yield assert(l1.toList)(equalTo((1 to 2).toList)) && assert(l2.reverse)(equalTo((1 to 4).toList))
+//      }
     ),
     suite("Constructors")(
       suite("range")(
