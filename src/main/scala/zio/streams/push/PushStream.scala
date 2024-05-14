@@ -75,14 +75,14 @@ trait PushStream[-R, +E, +A] { self =>
   }
 
   def buffer(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
-    bufferWithQueue(Queue.bounded[Either[E, A]](capacity))
+    bufferWithQueue(Queue.bounded[BufferOperator.QueueType[E, A]](capacity))
   }
 
   def bufferSliding(capacity: => Int)(implicit trace: Trace): PushStream[R, E, A] = {
-    bufferWithQueue(Queue.sliding[Either[E, A]](capacity))
+    bufferWithQueue(Queue.sliding[BufferOperator.QueueType[E, A]](capacity))
   }
 
-  private def bufferWithQueue(queueDef: UIO[Queue[Either[E, A]]]): PushStream[R, E, A] = {
+  private def bufferWithQueue(queueDef: UIO[Queue[BufferOperator.QueueType[E, A]]]): PushStream[R, E, A] = {
 
     val scopedQueue = ZIO.acquireRelease(queueDef)(_.shutdown)
     val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
