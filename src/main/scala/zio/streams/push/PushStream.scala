@@ -85,7 +85,7 @@ trait PushStream[-R, +E, +A] { self =>
   private def bufferWithQueue(queueDef: UIO[Queue[BufferOperator.QueueType[E, A]]]): PushStream[R, E, A] = {
 
     val scopedQueue = ZIO.acquireRelease(queueDef)(_.shutdown)
-    val x: ZIO[Any with Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
+    val x: ZIO[Any & Scope, Nothing, LiftByOperatorPushStream[R, E, A, R, E, A]] =
       scopedQueue.map(queue => new LiftByOperatorPushStream(this, new BufferOperator[A, R, E](queue)))
 
     PushStream.unwrapScoped(x)
@@ -242,7 +242,7 @@ object PushStream {
   def never(implicit trace: Trace): PushStream[Any, Nothing, Nothing] =
     PushStream.fromZIO(ZIO.never)
 
-  def unwrapScoped[R, E, A](f: => ZIO[R with Scope, E, PushStream[R, E, A]])(implicit trace: Trace): PushStream[R, E, A] = {
+  def unwrapScoped[R, E, A](f: => ZIO[R & Scope, E, PushStream[R, E, A]])(implicit trace: Trace): PushStream[R, E, A] = {
     new PushStream[R, E, A] {
       override def subscribe[OutR2 <: R](observer: Observer[OutR2, E, A]): URIO[OutR2, Unit] = {
         ZIO.uninterruptibleMask { restore =>
@@ -307,7 +307,7 @@ object PushStream {
   /** Creates a stream from a single value that will get cleaned up after the stream is consumed
     */
   def acquireReleaseWith[R, E, A](acquire: => ZIO[R, E, A])(release: A => URIO[R, Any])(implicit trace: Trace): PushStream[R, E, A] = {
-    val scopedStream: ZIO[R with Scope, E, PushStream[Any, Nothing, A]] = ZIO.acquireRelease(acquire)(release).map(a => PushStream(a))
+    val scopedStream: ZIO[R & Scope, E, PushStream[Any, Nothing, A]] = ZIO.acquireRelease(acquire)(release).map(a => PushStream(a))
     unwrapScoped(scopedStream)
   }
 

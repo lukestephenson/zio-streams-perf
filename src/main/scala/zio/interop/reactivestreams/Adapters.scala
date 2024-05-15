@@ -84,7 +84,7 @@ object Adapters {
 
   def sinkToSubscriber[R, I, L, Z](
       sink: => ZSink[R, Throwable, I, L, Z],
-      bufferSize: => Int)(implicit trace: Trace): ZIO[R with Scope, Throwable, (Subscriber[I], IO[Throwable, Z])] =
+      bufferSize: => Int)(implicit trace: Trace): ZIO[R & Scope, Throwable, (Subscriber[I], IO[Throwable, Z])] =
     for {
       subscriberP <- makeSubscriber[I](bufferSize)
       (subscriber, p) = subscriberP
@@ -250,7 +250,7 @@ object Adapters {
       }
       .map(_ => if (!subscription.isCanceled) subscriber.onComplete())
 
-  private class DemandTrackingSubscription(subscriber: Subscriber[_])(implicit val unsafe: Unsafe)
+  private class DemandTrackingSubscription(subscriber: Subscriber[?])(implicit val unsafe: Unsafe)
       extends Subscription {
 
     private case class State(
@@ -309,14 +309,14 @@ object Adapters {
       state.getAndSet(canceled).toNotify.foreach { case (_, p) => p.unsafe.done(ZIO.fail(())) }
   }
 
-  private def fromPull[R, E, A](zio: ZIO[R with Scope, Nothing, ZIO[R, Option[E], Chunk[A]]])(implicit trace: Trace): ZStream[R, E, A] = {
-    val x: ZIO[R with Scope, Nothing, ZStream[R, E, A]] = zio.map(pull => ZStream.repeatZIOChunkOption(pull))
+  private def fromPull[R, E, A](zio: ZIO[R & Scope, Nothing, ZIO[R, Option[E], Chunk[A]]])(implicit trace: Trace): ZStream[R, E, A] = {
+    val x: ZIO[R & Scope, Nothing, ZStream[R, E, A]] = zio.map(pull => ZStream.repeatZIOChunkOption(pull))
     ZStream.unwrapScoped[R](x)
   }
 
-  private def fromPullToPushStream[R, E, A](zio: ZIO[R with Scope, Nothing, ZIO[R, Option[E], Chunk[A]]])(implicit
+  private def fromPullToPushStream[R, E, A](zio: ZIO[R & Scope, Nothing, ZIO[R, Option[E], Chunk[A]]])(implicit
       trace: Trace): PushStream[R, E, Chunk[A]] = {
-    val x: ZIO[R with Scope, Nothing, PushStream[R, E, Chunk[A]]] = zio.map(pull => PushStream.repeatZIOOption(pull))
+    val x: ZIO[R & Scope, Nothing, PushStream[R, E, Chunk[A]]] = zio.map(pull => PushStream.repeatZIOOption(pull))
     PushStream.unwrapScoped(x)
   }
 }
