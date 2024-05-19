@@ -9,7 +9,7 @@ import zio.*
 import java.io.IOException
 
 object PushSteamExample extends ZIOAppDefault {
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] = {
+  override def run: ZIO[Any & ZIOAppArgs & Scope, Any, Any] = {
 
     val range: PushStream[Any, Nothing, Int] = PushStream.range(0, 500_000)
     val mapped: PushStream[Any, String, Int] = range.mapZIO(i => if (i == 5) ZIO.fail("dead") else ZIO.succeed(i * 2))

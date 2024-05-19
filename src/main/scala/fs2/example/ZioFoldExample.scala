@@ -40,7 +40,7 @@ object ZioFoldExample extends ZIOAppDefault {
     program // .withRuntimeFlags(RuntimeFlags.disable(RuntimeFlag.CooperativeYielding))
   }
 
-  private def timed(description: String, task: UIO[_]): ZIO[Any, Nothing, Unit] = {
+  private def timed(description: String, task: UIO[?]): ZIO[Any, Nothing, Unit] = {
     val iterations = 5
     val timedTask = for {
       result <- task.timed
