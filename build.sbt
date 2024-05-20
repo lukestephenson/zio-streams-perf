@@ -1,6 +1,6 @@
 ThisBuild / version := "0.1.0-SNAPSHOT"
 
-ThisBuild / scalaVersion := "3.4.1"
+ThisBuild / scalaVersion := "3.3.3"
 
 //val zioVersion = "2.0.18+16-9a15165a-SNAPSHOT"
 val zioVersion = "2.1-RC1"
@@ -27,7 +27,7 @@ lazy val root = (project in file("."))
       "io.monix" %% "monix-reactive" % monixVersion,
       "io.monix" %% "monix-execution" % monixVersion,
       // KYO
-      "io.getkyo" %% "kyo-core" % kyoVersion
+//      "io.getkyo" %% "kyo-core" % kyoVersion
     )
   )
 
