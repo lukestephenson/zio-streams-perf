@@ -50,7 +50,7 @@ However, this doesn't prevent convenience methods for working with chunks being 
 
 The last benchmark result has been committed to this project. You can view the results thanks to https://jmh.morethan.io/.
 
-- [Benchmark visualisation](https://jmh.morethan.io/?sources=)
+- [Benchmark visualisation](https://jmh.morethan.io/?source=https://raw.githubusercontent.com/lukestephenson/zio-streams-perf/main/benchmarks.json)
 
 ## Next steps
 
