@@ -19,7 +19,7 @@ class MapZio_Map_MapZIO_Fold_Benchmark extends BaseBenchmark {
       .mapEval(i => MonixTask.now(i / 2))
       .foldLeftL(0L)(_ + _).runSyncUnsafe()
   }
-  
+
   @Benchmark
   def PushStreamChunk1() = {
     runZIO(PushStream.range(0, 1_000_000)
@@ -37,7 +37,7 @@ class MapZio_Map_MapZIO_Fold_Benchmark extends BaseBenchmark {
       .mapZIO(i => ZIO.succeed(i / 2))
       .runFold(0)(_ + _))
   }
-  
+
   @Benchmark
   def PushStreamChunk100() = {
     runZIO(ChunkedPushStream.range(0, 1_000_000, 100)
@@ -46,7 +46,7 @@ class MapZio_Map_MapZIO_Fold_Benchmark extends BaseBenchmark {
       .mapZIOChunks(i => ZIO.succeed(i / 2))
       .runFold(0)(_ + _.sum))
   }
-  
+
   @Benchmark
   def ZStreamChunk100() = {
     runZIO(ZStream.range(0, 1_000_000, 100)
